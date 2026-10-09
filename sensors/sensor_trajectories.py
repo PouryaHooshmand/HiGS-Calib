@@ -121,33 +121,33 @@ class SensorTrajectories:
             eps: float = 1e-7
     ) -> torch.Tensor:
         """
-        计算四元数之间的欧拉角三轴误差
+        Compute three-axis Euler angle error between quaternions.
 
-        参数:
-            pred_q (Tensor): 预测四元数 [..., 4] (w, x, y, z)
-            gt_q (Tensor): 真值四元数 [..., 4]
-            rotation_order (str): 欧拉角分解顺序，默认为'XYZ'
-            eps (float): 数值稳定系数
+        Args:
+            pred_q (Tensor): Predicted quaternion [..., 4] (w, x, y, z)
+            gt_q (Tensor): Ground truth quaternion [..., 4]
+            rotation_order (str): Euler angle decomposition order, default is 'XYZ'
+            eps (float): Numerical stability coefficient
 
-        返回:
-            error (Tensor): 欧拉角三轴绝对误差 [..., 3] (单位:弧度)
+        Returns:
+            error (Tensor): Absolute Euler angle error on three axes [..., 3] (unit: degrees)
         """
-        # 归一化四元数 (处理非单位四元数)
+        # Normalize quaternions (handle non-unit quaternions)
         pred_q = pred_q / (torch.norm(pred_q, dim=-1, keepdim=True) + eps)
         gt_q = gt_q / (torch.norm(gt_q, dim=-1, keepdim=True) + eps)
 
-        # 转换为旋转矩阵
+        # Convert to rotation matrices
         pred_rot = pytorch3d.transforms.quaternion_to_matrix(pred_q)  # [..., 3, 3]
         gt_rot = pytorch3d.transforms.quaternion_to_matrix(gt_q)  # [..., 3, 3]
 
-        # 转换为欧拉角
+        # Convert to Euler angles
         pred_euler = pytorch3d.transforms.matrix_to_euler_angles(pred_rot, rotation_order)  # [..., 3]
         gt_euler = pytorch3d.transforms.matrix_to_euler_angles(gt_rot, rotation_order)  # [..., 3]
 
-        # 计算周期性角度误差
+        # Compute periodic angular error
         diff = pred_euler - gt_euler
         diff_rad = torch.remainder(diff + torch.pi, 2 * torch.pi) - torch.pi  # [-π, π]
-        # 转换为角度制并取绝对值
+        # Convert to degrees and take absolute value
         diff_deg = torch.abs(diff_rad) * (180.0 / torch.pi)  # [..., 3] (degree)
 
         return diff_deg

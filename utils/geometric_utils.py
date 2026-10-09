@@ -2,19 +2,19 @@ import torch
 
 def find_nearest_gaussian(points, gaussians):
     """
-    计算点云中每个点最近的高斯球索引
+    Compute the index of the nearest Gaussian for each point in the point cloud.
 
     Args:
-        points (torch.Tensor): 输入点云，形状为[N, 3]
-        gaussians (torch.Tensor): 高斯球中心坐标，形状为[M, 3]
+        points (torch.Tensor): Input point cloud of shape [N, 3]
+        gaussians (torch.Tensor): Gaussian center coordinates of shape [M, 3]
 
     Returns:
-        torch.Tensor: 每个点对应的最近高斯球索引，形状为[N]
+        torch.Tensor: Nearest Gaussian index for each point of shape [N]
     """
-    # 计算点与高斯球之间的成对欧氏距离
-    distances = torch.cdist(points, gaussians)  # 输出形状[N, M]
+    # Compute pairwise Euclidean distances between points and Gaussians
+    distances = torch.cdist(points, gaussians)  # Output shape [N, M]
 
-    # 获取最小距离的索引
+    # Get indices of minimum distance
     nearest_indices = torch.argmin(distances, dim=1)
 
     return nearest_indices

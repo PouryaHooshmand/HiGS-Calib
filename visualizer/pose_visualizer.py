@@ -208,7 +208,7 @@ def visualize(scene):
     pose_viz_thread.start()
 
     # --- 2. Prepare and add static pose data ---
-    # == LiDAR 位姿真值 (World to LiDAR) ==
+    # == LiDAR Ground Truth Pose (World to LiDAR) ==
     lidar_poses_gt_matrices = []
     for i in range(scene.sensor_trajectory.get_length()):
         rotation_wl, translation_wl = scene.sensor_trajectory.get_lidar_pose(i)
@@ -224,7 +224,7 @@ def visualize(scene):
         frame_size=0.4, sphere_radius=0.04, sphere_color=[0, 0, 1]  # Blue
     )
 
-    # == 相机位姿真值 (World to Camera) ==
+    # == Camera Ground Truth Pose (World to Camera) ==
     camera_poses_gt_matrices = []
     for i in range(scene.sensor_trajectory.get_length()):
         rotation_wc, translation_wc = scene.sensor_trajectory.get_gt_camera_pose(i)
@@ -274,7 +274,7 @@ if __name__ == "__main__":
     pose_viz_thread.start()
 
     # --- 2. Prepare and add static pose data ---
-    # == LiDAR 位姿真值 (World to LiDAR) ==
+    # == LiDAR Ground Truth Pose (World to LiDAR) ==
     lidar_poses_gt_matrices = []
     for i in range(3):
         R_lidar = get_rotation_matrix_from_xyz_angles(0, 0, i * 10, in_degrees=True)
@@ -285,7 +285,7 @@ if __name__ == "__main__":
         frame_size=0.4, sphere_radius=0.04, sphere_color=[0, 0, 1]  # Blue
     )
 
-    # == 相机位姿真值 (World to Camera) ==
+    # == Camera Ground Truth Pose (World to Camera) ==
     R_cam_ext = get_rotation_matrix_from_xyz_angles(0, -90, 0, in_degrees=True)
     t_cam_ext = np.array([0.5, 0, 0])
     T_lidar_to_cam_extrinsic = create_transformation_matrix(R_cam_ext, t_cam_ext)

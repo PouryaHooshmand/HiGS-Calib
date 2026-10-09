@@ -123,33 +123,33 @@ def storePly(path, xyz, rgb):
 
 
 def create_voxel_grid(all_points, s):
-    # 计算全局包围盒并扩展边界
+    # Compute global bounding box and expand boundaries
     min_coords = np.min(all_points, axis=0)
-    max_coords = np.max(all_points, axis=0) + 1e-8  # 扩展边界处理浮点误差
+    max_coords = np.max(all_points, axis=0) + 1e-8  # Expand boundary to handle floating point error
 
-    # 计算各维度体素数量
+    # Compute number of voxels in each dimension
     min_x, min_y, min_z = min_coords
     max_x, max_y, max_z = max_coords
     num_x = int(np.ceil((max_x - min_x) / s))
     num_y = int(np.ceil((max_y - min_y) / s))
     num_z = int(np.ceil((max_z - min_z) / s))
 
-    # 初始化体素网格
+    # Initialize voxel grid
     voxel_grid = np.zeros((num_x, num_y, num_z), dtype=bool)
 
-    # 计算每个点对应的体素索引
+    # Compute voxel index for each point
     indices_x = ((all_points[:, 0] - min_x) // s).astype(int)
     indices_y = ((all_points[:, 1] - min_y) // s).astype(int)
     indices_z = ((all_points[:, 2] - min_z) // s).astype(int)
 
-    # 去重并标记占据的体素
+    # Deduplicate and mark occupied voxels
     voxel_indices = np.column_stack((indices_x, indices_y, indices_z))
     unique_indices = np.unique(voxel_indices, axis=0)
     voxel_grid[tuple(unique_indices.T)] = True
     origin = np.array([min_x, min_y, min_z])
     occupied_indices = np.argwhere(voxel_grid)
 
-    points = origin + (occupied_indices + 0.5) * s  # 计算体素中心
+    points = origin + (occupied_indices + 0.5) * s  # Compute voxel centers
     return points
 
 
@@ -158,15 +158,15 @@ class Kitti360Loader:
     def __init__(self, root_path, root_image_path, sequence="0000"):
         self.root = root_path
         self.root_image = root_image_path
-        self.sequence = sequence  # 格式如 "2013_05_28_drive_0000_sync"
+        self.sequence = sequence  # Format e.g. "2013_05_28_drive_0000_sync"
 
-        # 路径定义
+        # Path definitions
         self.calib_path = os.path.join(root_path, "calibration")
         self.color_path = os.path.join(root_image_path, "data_2d_raw", self.sequence)
         self.velodyne_path = os.path.join(root_path, "data_3d_raw", self.sequence, 'velodyne_points', 'data')
         self.pose_path = os.path.join(root_path, "data_poses", self.sequence)
 
-        # 加载标定参数和时间戳
+        # Load calibration parameters and timestamps
         self.calib = self._load_calibration()
         self.timestamps = self._load_timestamps()
         self.all_poses, self.effective_indices = self.load_all_pose()
@@ -182,23 +182,23 @@ class Kitti360Loader:
             for line in f:
                 line = line.strip()
                 if not line or line.startswith(("calib_time", "corner_dist")):
-                    continue  # 跳过注释和无关行
+                    continue  # Skip comments and irrelevant lines
 
-                # 解析键值对
+                # Parse key-value pairs
                 key, value = line.split(':', 1)
                 key = key.strip()
                 value = list(map(float, value.strip().split()))
 
-                # 分离参数类型和相机ID (例如: K_00 -> ("K", "00"))
-                if "_rect_" in key:  # 处理R_rect_00/P_rect_00等
+                # Separate parameter type and camera ID (e.g., K_00 -> ("K", "00"))
+                if "_rect_" in key:  # Handle R_rect_00/P_rect_00, etc.
                     param_type, cam_id = key.rsplit("_", 2)[0], key.split("_")[-1]
                     param_type = f"{param_type}_rect"
                 else:
                     parts = key.split('_')
                     cam_id = parts[-1]
-                    param_type = '_'.join(parts[:-1])  # 原始参数类型
+                    param_type = '_'.join(parts[:-1])  # Raw parameter type
 
-                # 初始化相机存储结构
+                # Initialize camera storage structure
                 cam_key = f"cam{cam_id}"
                 if cam_key not in calib:
                     calib[cam_key] = {
@@ -207,18 +207,18 @@ class Kitti360Loader:
                         "S_rect": None, "R_rect": None, "P_rect": None
                     }
 
-                # 赋值参数（按类型处理形状）
+                # Assign parameters (handle shapes by type)
                 if param_type == "S":
                     calib[cam_key]["S"] = np.array(value, dtype=np.int32)  # [width, height]
                 elif param_type == "K":
-                    calib[cam_key]["K"] = np.array(value).reshape(3, 3)  # 3x3内参矩阵
+                    calib[cam_key]["K"] = np.array(value).reshape(3, 3)  # 3x3 intrinsic matrix
                     calib[cam_key]["K"][2,2] = 1.
                 elif param_type == "D":
-                    calib[cam_key]["D"] = np.array(value)  # 畸变系数k1,k2,p1,p2,k3
+                    calib[cam_key]["D"] = np.array(value)  # Distortion coefficients k1, k2, p1, p2, k3
                 elif param_type == "R":
-                    calib[cam_key]["R"] = np.array(value).reshape(3, 3)  # 旋转矩阵
+                    calib[cam_key]["R"] = np.array(value).reshape(3, 3)  # Rotation matrix
                 elif param_type == "T":
-                    calib[cam_key]["T"] = np.array(value)  # 平移向量
+                    calib[cam_key]["T"] = np.array(value)  # Translation vector
                 elif param_type == "S_rect":
                     calib[cam_key]["S_rect"] = np.array(value, dtype=np.int32)
                 elif param_type == "R_rect":
@@ -226,7 +226,7 @@ class Kitti360Loader:
                 elif param_type == "P_rect":
                     calib[cam_key]["P_rect"] = np.array(value).reshape(3, 4)
 
-        # 构建相机外参矩阵 T_cam0_cam（相机->车体）
+        # Build camera extrinsic matrix T_cam0_cam (camera -> body)
         for cam_id in calib:
             R = calib[cam_id]["R"]
             T = calib[cam_id]["T"]
@@ -235,7 +235,7 @@ class Kitti360Loader:
             T_cam0_cam[:3, 3] = T
             calib[cam_id]["T_cam0_cam"] = T_cam0_cam
 
-        # 2. 加载相机到车体的外参 Tbc
+        # 2. Load camera-to-body extrinsics Tbc
         cam_to_pose_path = os.path.join(self.calib_path, "calib_cam_to_pose.txt")
         with open(cam_to_pose_path, 'r') as f:
             for line in f:
@@ -245,18 +245,18 @@ class Kitti360Loader:
                     matrix = np.array([float(x) for x in parts[1:]]).reshape(3, 4)
                     matrix_pose = np.eye(4)
                     matrix_pose[:3, :4] = matrix
-                    calib[f"T_body_{cam_id}"] = matrix_pose  # 相机到车体
+                    calib[f"T_body_{cam_id}"] = matrix_pose  # Camera to body
 
-        # 3. 加载LiDAR到车体的变换 Tlc
+        # 3. Load LiDAR-to-body transform Tlc
         velo_to_body_path = os.path.join(self.calib_path, "calib_cam_to_velo.txt")
         with open(velo_to_body_path, 'r') as f:
             matrix = np.array([float(x) for x in f.read().split()]).reshape(3, 4)
             matrix_pose = np.eye(4)
             matrix_pose[:3, :4] = matrix
-            calib["T_velo_cam00"] = matrix_pose  # 车体到LiDAR的变换
+            calib["T_velo_cam00"] = matrix_pose  # Camera to LiDAR transform
             T_body_cam0 = calib['T_body_cam00']
             T_body_velo = T_body_cam0 @ np.linalg.inv(matrix_pose)
-            calib["T_body_velo"] = T_body_velo  # 车体到LiDAR的变换
+            calib["T_body_velo"] = T_body_velo  # Body-to-LiDAR transform
 
         return calib
 

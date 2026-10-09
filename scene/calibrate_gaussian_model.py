@@ -34,18 +34,18 @@ class CalibrateGaussianModel:
     def setup_functions(self):
         def build_covariance_from_scaling_rotation(scaling, scaling_modifier, rotation):
             L = build_scaling_rotation(scaling_modifier * scaling, rotation)
-            actual_covariance = L @ L.transpose(1, 2)  # 构造协方差矩阵Σ=RS(SR^T)
-            symm = strip_symmetric(actual_covariance)  # 因为是对陈矩阵，所以只需要存储六个元素
+            actual_covariance = L @ L.transpose(1, 2)  # Construct covariance matrix Sigma=RS(SR^T)
+            symm = strip_symmetric(actual_covariance)  # Since it is a symmetric matrix, only 6 elements need to be stored
             return symm
 
-        self.scaling_activation = torch.exp  # 缩放参数实际值: exp(log_scaling)
+        self.scaling_activation = torch.exp  # Actual scaling parameter: exp(log_scaling)
         self.scaling_inverse_activation = torch.log
 
         self.covariance_activation = build_covariance_from_scaling_rotation
 
-        self.opacity_activation = torch.sigmoid  # 透明度: sigmoid(log_opacity)
+        self.opacity_activation = torch.sigmoid  # Opacity: sigmoid(log_opacity)
         self.inverse_opacity_activation = inverse_sigmoid
-        self.rotation_activation = torch.nn.functional.normalize  # 四元数单位化
+        self.rotation_activation = torch.nn.functional.normalize  # Quaternion normalization
 
     def __init__(self, sh_degree, optimizer_type="default"):
         self.active_sh_degree = 0
@@ -90,7 +90,7 @@ class CalibrateGaussianModel:
         return
 
 
-    # 使用点云进行模型初始化
+    # Initialize model using point cloud
     def create_from_pcd(self, pcd: BasicPointCloud,
                         spatial_lr_scale: float,
                         rotation_wl_param: nn.Parameter,
@@ -109,18 +109,18 @@ class CalibrateGaussianListModel:
     def setup_functions(self):
         def build_covariance_from_scaling_rotation(scaling, scaling_modifier, rotation):
             L = build_scaling_rotation(scaling_modifier * scaling, rotation)
-            actual_covariance = L @ L.transpose(1, 2)  # 构造协方差矩阵Σ=RS(SR^T)
-            symm = strip_symmetric(actual_covariance)  # 因为是对陈矩阵，所以只需要存储六个元素
+            actual_covariance = L @ L.transpose(1, 2)  # Construct covariance matrix Sigma=RS(SR^T)
+            symm = strip_symmetric(actual_covariance)  # Since it is a symmetric matrix, only 6 elements need to be stored
             return symm
 
-        self.scaling_activation = torch.exp  # 缩放参数实际值: exp(log_scaling)
+        self.scaling_activation = torch.exp  # Actual scaling parameter: exp(log_scaling)
         self.scaling_inverse_activation = torch.log
 
         self.covariance_activation = build_covariance_from_scaling_rotation
 
-        self.opacity_activation = torch.sigmoid  # 透明度: sigmoid(log_opacity)
+        self.opacity_activation = torch.sigmoid  # Opacity: sigmoid(log_opacity)
         self.inverse_opacity_activation = inverse_sigmoid
-        self.rotation_activation = torch.nn.functional.normalize  # 四元数单位化
+        self.rotation_activation = torch.nn.functional.normalize  # Quaternion normalization
 
     def __init__(self, sh_degree, optimizer_type="default"):
         self.active_sh_degree = 0
@@ -129,22 +129,22 @@ class CalibrateGaussianListModel:
 
         self.gaussian_model_list = []
         self.max_sh_degree = sh_degree
-        self._xyz = torch.empty(0)  # 高斯中心坐标 [N,3]
-        self._features_dc = torch.empty(0)  # 球谐函数DC分量 [N,1,3] 0阶球谐分量（漫反射颜色)
-        self._features_rest = torch.empty(0)  # 球谐高阶分量 [N, (sh_degree+1)^2-1, 3] 1阶及更高阶分量（镜面反射等高频细节）
-        self._scaling = torch.empty(0)  # 缩放对数形式 [N,3]
-        self._rotation = torch.empty(0)  # 四元数 [N,4]
-        self._opacity = torch.empty(0)  # 不透明度对数形式 [N,1]
-        self.max_radii2D = torch.empty(0)  # 各高斯在2D投影的最大半径 [N]
-        self.xyz_gradient_accum = torch.empty(0)  # 位置梯度累积量 [N,1]
-        self.denom = torch.empty(0)  # 梯度归一化分母 [N,1]
+        self._xyz = torch.empty(0)  # Gaussian center coordinates [N, 3]
+        self._features_dc = torch.empty(0)  # Spherical harmonics DC component [N, 1, 3], order 0 SH (diffuse color)
+        self._features_rest = torch.empty(0)  # Spherical harmonics higher-order components [N, (sh_degree+1)^2-1, 3], order 1+ (specular reflection and high-frequency details)
+        self._scaling = torch.empty(0)  # Scaling in log form [N, 3]
+        self._rotation = torch.empty(0)  # Quaternion [N, 4]
+        self._opacity = torch.empty(0)  # Opacity in logit form [N, 1]
+        self.max_radii2D = torch.empty(0)  # Max radius of each Gaussian projected to 2D [N]
+        self.xyz_gradient_accum = torch.empty(0)  # Position gradient accumulation [N, 1]
+        self.denom = torch.empty(0)  # Gradient normalization denominator [N, 1]
 
 
         self.color_encoder = None
         self.optimizer = None
         self.percent_dense = 0
         self.spatial_lr_scale = 0
-        # 参数激活函数
+        # Parameter activation functions
         self.setup_functions()
 
     def capture(self):
@@ -206,7 +206,7 @@ class CalibrateGaussianListModel:
     def get_covariance(self, scaling_modifier=1):
         return self.covariance_activation(self.get_scaling, scaling_modifier, self._rotation)
 
-    # 使用点云进行模型初始化
+    # Initialize model using point cloud
     def create_from_pcd_list(self, pcd_list: list, spatial_lr_scale: float, rotations_wl_list: list, translations_wl_list: list,  projection_matrix, resolution:float):
         assert len(pcd_list) == len(rotations_wl_list)
         assert len(pcd_list) == len(translations_wl_list)
@@ -234,7 +234,7 @@ class CalibrateGaussianListModel:
 
 
 
-    # 使用点云进行模型初始化
+    # Initialize model using point cloud
     def create_from_pcd(self, fused_point_cloud, colors,
                         spatial_lr_scale: float,
                         resolution: float):
@@ -268,18 +268,18 @@ class CalibrateGaussianListModel:
         # self.culling_points()
 
         features = torch.zeros((fused_color.shape[0], 3, (self.max_sh_degree + 1) ** 2)).float().cuda()
-        # 高阶球谐设置为0
+        # Set higher-order spherical harmonics to 0
         features[:, :3, 0] = fused_color
         features[:, 3:, 1:] = 0.0
 
         print("Number of points at initialisation : ", fused_point_cloud.shape[0])
         scales = torch.log(torch.diagonal(torch.sqrt(final_covariances_large), dim1=1, dim2=2))
-        rots = torch.zeros((fused_point_cloud.shape[0], 4), device="cuda")  # 初始旋转（无旋转）
+        rots = torch.zeros((fused_point_cloud.shape[0], 4), device="cuda")  # Initial rotation (identity/no rotation)
         rots[:, 0] = 1
 
         # Change opacities to 0.99
         opacities = self.inverse_opacity_activation(
-            0.99 * torch.ones((fused_point_cloud.shape[0], 1), dtype=torch.float, device="cuda"))  # 初始透明度
+            0.99 * torch.ones((fused_point_cloud.shape[0], 1), dtype=torch.float, device="cuda"))  # Initial opacity
 
         self._xyz = nn.Parameter(fused_point_cloud).requires_grad_(True)
         self._features_dc = nn.Parameter(features[:, :, 0:1].transpose(1, 2).contiguous().requires_grad_(True))
@@ -347,7 +347,7 @@ class CalibrateGaussianListModel:
 
         if self.optimizer_type == "default":
             self.optimizer = torch.optim.Adam(l, lr=0.0, eps=1e-15)
-        # SparseGaussianAdam仅更新可见高斯参数，提升效率
+        # SparseGaussianAdam only updates visible Gaussian parameters to improve efficiency
         elif self.optimizer_type == "sparse_adam":
             try:
                 self.optimizer = SparseGaussianAdam(l, lr=0.0, eps=1e-15)

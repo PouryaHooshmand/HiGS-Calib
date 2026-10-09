@@ -10,41 +10,41 @@ import torch
 
 def project_lidar_to_image(points_lidar, image, K, T_lidar_to_cam, P = None):
     """
-    将雷达点云投影到图像平面并可视化
-    参数：
-        points_lidar: Nx3 numpy数组，雷达坐标系下的点云
-        image: HxWx3 numpy数组，BGR格式的彩色图像
-        K: 3x3 numpy数组，相机内参矩阵
-        T_lidar_to_cam: 4x4 numpy数组，雷达到相机的变换矩阵
-    返回：
-        HxWx3 numpy数组，融合后的可视化图像
+    Project LiDAR point cloud onto the image plane and visualize it.
+    Args:
+        points_lidar: Nx3 numpy array, point cloud in LiDAR coordinate frame
+        image: HxWx3 numpy array, color image in BGR format
+        K: 3x3 numpy array, camera intrinsic matrix
+        T_lidar_to_cam: 4x4 numpy array, LiDAR-to-camera transformation matrix
+    Returns:
+        HxWx3 numpy array, fused visualization image
     """
-    # 转换点云到齐次坐标
+    # Convert point cloud to homogeneous coordinates
     N = points_lidar.shape[0]
     points_hom = np.hstack((points_lidar, np.ones((N, 1))))
 
-    # 转换到相机坐标系
+    # Transform to camera coordinate frame
     points_cam = (T_lidar_to_cam @ points_hom.T).T[:, :3]
 
-    # 过滤掉相机后方的点
-    valid_z = points_cam[:, 2] > 0.1  # 0.1米阈值防止过近点
+    # Filter out points behind the camera
+    valid_z = points_cam[:, 2] > 0.1  # 0.1m threshold to prevent points that are too close
     points_cam = points_cam[valid_z]
 
     if points_cam.shape[0] == 0:
         return image.copy()
 
-    # 提取相机参数
+    # Extract camera parameters
     fx, fy = K[0, 0], K[1, 1]
     cx, cy = K[0, 2], K[1, 2]
 
-    # 投影到像素平面
+    # Project to pixel plane
     x = points_cam[:, 0]
     y = points_cam[:, 1]
     z = points_cam[:, 2]
     u = (fx * x / z + cx).astype(int)
     v = (fy * y / z + cy).astype(int)
 
-    # 过滤有效像素坐标
+    # Filter valid pixel coordinates
     H, W = image.shape[:2]
     valid_uv = (u >= 0) & (u < W) & (v >= 0) & (v < H)
     u = u[valid_uv]
@@ -54,20 +54,20 @@ def project_lidar_to_image(points_lidar, image, K, T_lidar_to_cam, P = None):
     if len(u) == 0:
         return image.copy()
 
-    # 创建深度颜色映射
-    z_min, z_max = np.percentile(z, [2, 98])  # 使用98%分位数避免异常值
+    # Create depth color map
+    z_min, z_max = np.percentile(z, [2, 98])  # Use 98% percentile to avoid outliers
     norm = plt.Normalize(z_min, z_max)
-    cmap = plt.get_cmap('jet')  # 使用jet色图增强对比
+    cmap = plt.get_cmap('jet')  # Use jet colormap to enhance contrast
 
-    # 生成颜色并转换到0-255范围
-    colors = cmap(norm(z))[:, :3]  # 忽略alpha通道
+    # Generate colors and convert to 0-255 range
+    colors = cmap(norm(z))[:, :3]  # Ignore alpha channel
     colors = (colors * 255).astype(np.uint8)
 
-    # 创建深度缓冲区
+    # Create depth buffer
     depth_buffer = np.full((H, W), np.inf)
     result = image.copy()
 
-    # 更新每个有效点
+    # Update each valid point
     for i in range(len(u)):
         if z[i] < depth_buffer[v[i], u[i]]:
             depth_buffer[v[i], u[i]] = z[i]
@@ -77,74 +77,74 @@ def project_lidar_to_image(points_lidar, image, K, T_lidar_to_cam, P = None):
 
 
 def project_to_pixel_torch(points_3d, P, image_width, image_height):
-    """将视图空间的3D点投影到图像像素坐标（NumPy版本）"""
-    # points_3d: (N, 3) 视图空间坐标（需先应用视图变换）
-    # 转换为齐次坐标 (N, 4)
+    """Project 3D points in view space to image pixel coordinates (PyTorch version)"""
+    # points_3d: (N, 3) view space coordinates (view transform must be applied first)
+    # Convert to homogeneous coordinates (N, 4)
     ones = torch.ones_like(points_3d[:,0:1])
     points_homo = torch.hstack([points_3d, ones])  # (N, 4)
 
-    # 应用投影矩阵 → 裁剪空间 (N, 4)
-    clip_coords = points_homo @ P.T  # 等价于 np.matmul(points_homo, P.T)
+    # Apply projection matrix → clip space (N, 4)
+    clip_coords = points_homo @ P.T  # Equivalent to np.matmul(points_homo, P.T)
 
-    # 透视除法 → NDC (范围根据坐标系调整)
+    # Perspective division → NDC (range adjusted according to coordinate system)
     w = clip_coords[:, 3].view(-1, 1)  # (N, 1)
     ndc_coords = clip_coords[:, :3] / w    # (N, 3)
 
-    # 视口变换 → 图像像素坐标 (u, v)
+    # Viewport transform → image pixel coordinates (u, v)
     u = (ndc_coords[:, 0] + 1) * 0.5 * image_width
-    v = (ndc_coords[:, 1] + 1) * 0.5 * image_height  # 翻转y方向
+    v = (ndc_coords[:, 1] + 1) * 0.5 * image_height  # Flip y direction
 
-    return torch.column_stack([u, v])  # 合并为 (N, 2)
+    return torch.column_stack([u, v])  # Merge into (N, 2)
 
 def project_to_pixel(points_3d, P, image_width, image_height):
-    """将视图空间的3D点投影到图像像素坐标（NumPy版本）"""
-    # points_3d: (N, 3) 视图空间坐标（需先应用视图变换）
-    # 转换为齐次坐标 (N, 4)
+    """Project 3D points in view space to image pixel coordinates (NumPy version)"""
+    # points_3d: (N, 3) view space coordinates (view transform must be applied first)
+    # Convert to homogeneous coordinates (N, 4)
     ones = np.ones((points_3d.shape[0], 1), dtype=np.float32)
     points_homo = np.hstack([points_3d, ones])  # (N, 4)
 
-    # 应用投影矩阵 → 裁剪空间 (N, 4)
-    clip_coords = points_homo @ P.T  # 等价于 np.matmul(points_homo, P.T)
+    # Apply projection matrix → clip space (N, 4)
+    clip_coords = points_homo @ P.T  # Equivalent to np.matmul(points_homo, P.T)
 
-    # 透视除法 → NDC (范围根据坐标系调整)
+    # Perspective division → NDC (range adjusted according to coordinate system)
     w = clip_coords[:, 3].reshape(-1, 1)  # (N, 1)
     ndc_coords = clip_coords[:, :3] / w    # (N, 3)
 
-    # 视口变换 → 图像像素坐标 (u, v)
+    # Viewport transform → image pixel coordinates (u, v)
     u = (ndc_coords[:, 0] + 1) * 0.5 * image_width
-    v = (ndc_coords[:, 1] + 1) * 0.5 * image_height  # 翻转y方向
+    v = (ndc_coords[:, 1] + 1) * 0.5 * image_height  # Flip y direction
 
-    return np.column_stack([u, v])  # 合并为 (N, 2)
+    return np.column_stack([u, v])  # Merge into (N, 2)
 
 
 def project_lidar_to_image_with_projection(points_lidar, image, P, T_lidar_to_cam):
     """
-    将雷达点云投影到图像平面并可视化
-    参数：
-        points_lidar: Nx3 numpy数组，雷达坐标系下的点云
-        image: HxWx3 numpy数组，BGR格式的彩色图像
-        K: 3x3 numpy数组，相机内参矩阵
-        T_lidar_to_cam: 4x4 numpy数组，雷达到相机的变换矩阵
-    返回：
-        HxWx3 numpy数组，融合后的可视化图像
+    Project LiDAR point cloud onto the image plane and visualize it.
+    Args:
+        points_lidar: Nx3 numpy array, point cloud in LiDAR coordinate frame
+        image: HxWx3 numpy array, color image in BGR format
+        P: 4x4 numpy array, projection matrix
+        T_lidar_to_cam: 4x4 numpy array, LiDAR-to-camera transformation matrix
+    Returns:
+        HxWx3 numpy array, fused visualization image
     """
-    # 转换点云到齐次坐标
+    # Convert point cloud to homogeneous coordinates
     N = points_lidar.shape[0]
     points_hom = np.hstack((points_lidar, np.ones((N, 1))))
 
-    # 转换到相机坐标系
+    # Transform to camera coordinate frame
     points_cam = (T_lidar_to_cam @ points_hom.T).T[:, :3]
 
-    # 过滤掉相机后方的点
-    valid_z = points_cam[:, 2] > 0.1  # 0.1米阈值防止过近点
+    # Filter out points behind the camera
+    valid_z = points_cam[:, 2] > 0.1  # 0.1m threshold to prevent points that are too close
     points_cam = points_cam[valid_z]
 
     if points_cam.shape[0] == 0:
         return image.copy()
 
-    # 提取相机参数
+    # Extract camera parameters
 
-    # 投影到像素平面
+    # Project to pixel plane
     z = points_cam[:, 2]
 
     H, W = image.shape[:2]
@@ -153,7 +153,7 @@ def project_lidar_to_image_with_projection(points_lidar, image, P, T_lidar_to_ca
     u = points_pixel[:,0].astype(int)
     v = points_pixel[:,1].astype(int)
 
-    # 过滤有效像素坐标
+    # Filter valid pixel coordinates
     valid_uv = (u >= 0) & (u < W) & (v >= 0) & (v < H)
     u = u[valid_uv]
     v = v[valid_uv]
@@ -162,20 +162,20 @@ def project_lidar_to_image_with_projection(points_lidar, image, P, T_lidar_to_ca
     if len(u) == 0:
         return image.copy()
 
-    # 创建深度颜色映射
-    z_min, z_max = np.percentile(z, [2, 98])  # 使用98%分位数避免异常值
+    # Create depth color map
+    z_min, z_max = np.percentile(z, [2, 98])  # Use 98% percentile to avoid outliers
     norm = plt.Normalize(z_min, z_max)
-    cmap = plt.get_cmap('jet')  # 使用jet色图增强对比
+    cmap = plt.get_cmap('jet')  # Use jet colormap to enhance contrast
 
-    # 生成颜色并转换到0-255范围
-    colors = cmap(norm(z))[:, :3]  # 忽略alpha通道
+    # Generate colors and convert to 0-255 range
+    colors = cmap(norm(z))[:, :3]  # Ignore alpha channel
     colors = (colors * 255).astype(np.uint8)
 
-    # 创建深度缓冲区
+    # Create depth buffer
     depth_buffer = np.full((H, W), np.inf)
     result = image.copy()
 
-    # 更新每个有效点
+    # Update each valid point
     for i in range(len(u)):
         if z[i] < depth_buffer[v[i], u[i]]:
             depth_buffer[v[i], u[i]] = z[i]
@@ -188,7 +188,7 @@ def project_lidar_to_image_with_projection(points_lidar, image, P, T_lidar_to_ca
 
 class ImageViewer:
     def __init__(self, img = None):
-        self.queue = Queue(maxsize=1)  # 单缓冲队列
+        self.queue = Queue(maxsize=1)  # Single-buffer queue
         self.running = False
         self.window_name = "OpenCV Viewer"
         self.img = img
@@ -208,29 +208,29 @@ class ImageViewer:
         self.mutex.release()
 
     def _display_thread(self):
-        """显示线程内部函数"""
+        """Internal display thread function"""
         cv2.namedWindow(self.window_name, cv2.WINDOW_NORMAL)
         while self.running:
             self.mutex.acquire()
-            # 非阻塞获取图像，最多等待100ms
+            # Non-blocking image acquisition, wait at most 100ms
             cv2.imshow(self.window_name, self.img)
-            # 必须定期处理窗口事件
+            # Window events must be periodically processed
             key = cv2.waitKey(30) & 0xFF
             self.mutex.release()
-            if key == 27:  # ESC键退出
+            if key == 27:  # ESC key to exit
                 self.stop()
         cv2.destroyAllWindows()
 
     def start(self):
-        """启动显示线程"""
+        """Start display thread"""
         if not self.running:
             self.running = True
             self.thread = threading.Thread(target=self._display_thread)
-            self.thread.daemon = True  # 设置为守护线程
+            self.thread.daemon = True  # Set as daemon thread
             self.thread.start()
 
     def update(self, image):
-        """更新显示图像（线程安全）"""
+        """Update displayed image (thread-safe)"""
         try:
             self.mutex.acquire()
             self.img = image
@@ -239,7 +239,7 @@ class ImageViewer:
             pass
 
     def stop(self):
-        """停止显示线程"""
+        """Stop display thread"""
         self.running = False
         if self.thread.is_alive():
             self.thread.join(timeout=1)
@@ -387,71 +387,70 @@ def get_3d_points_from_pixels_depth_mask_torch(
     return points_3d_view_space
 
 
-# 示例用法
+# Example usage
 if __name__ == "__main__":
-    # 生成虚拟数据
+    # Generate dummy data
     H, W = 480, 640
     dummy_image = np.random.randint(0, 255, (H, W, 3), dtype=np.uint8)
     dummy_image = dummy_image * 0 + 122
 
-    # 虚拟雷达点云（10米范围内的立方体）
+    # Dummy LiDAR point cloud (cube within 10m range)
     x = np.random.uniform(-5, 5, 10000)
     y = np.random.uniform(-5, 5, 10000)
     z = np.random.uniform(2, 10, 10000)
     points_lidar = np.vstack([x, y, z]).T
 
-    # 虚拟相机参数
+    # Dummy camera parameters
     K = np.array([[500, 0, 320],
                   [0, 500, 240],
                   [0, 0, 1]])
 
-    # 虚拟外参（相机位于雷达前方1米处）
+    # Dummy extrinsics (camera located 1m in front of LiDAR)
     T_lidar_to_cam = np.eye(4)
     T_lidar_to_cam[2, 3] = 1.0
 
-    # 执行投影
+    # Perform projection
     vis_image = project_lidar_to_image(points_lidar, dummy_image, K, T_lidar_to_cam)
 
-    # 显示结果
-    cv2.imshow('Projection Result', vis_image[..., ::-1])  # 转换BGR到RGB
+    cv2.imshow('Projection Result', vis_image)
     cv2.waitKey(0)
     cv2.destroyAllWindows()
 
 def create_gradient_mask(image_tensor, ratio = 0.5):
     """
-    基于 PyTorch 检查图像的彩色像素梯度是否大于图像平均值，并生成二值 mask。
+    Check if color pixel gradient of an image is greater than the image mean using PyTorch, and generate a binary mask.
 
-    参数:
-        image_tensor (torch.Tensor): 输入图像张量，形状为 [C, H, W]（C为通道数，H为高度，W为宽度）。
-                                    建议图像值范围 [0, 1] 或已标准化。
+    Args:
+        image_tensor (torch.Tensor): Input image tensor of shape [C, H, W] (C is channels, H is height, W is width).
+                                     Image value range [0, 1] or normalized is recommended.
 
-    返回:
-        torch.Tensor: 二值 mask，形状为 [H, W]。值为 1 表示对应像素的梯度大于图像平均值，否则为 0。
+    Returns:
+        torch.Tensor: Binary mask of shape [H, W]. Value 1 indicates pixel gradient is greater than image mean, otherwise 0.
     """
-    # 确保输入是浮点型张量，避免类型错误
+    # Ensure input is a float tensor to avoid type errors
     if image_tensor.dtype != torch.float32:
         image_tensor = image_tensor.float()
 
-    # 步骤1: 计算图像的梯度幅值（使用 Sobel 算子）
-    # 定义 Sobel 卷积核（水平和垂直方向），参考网页4的卷积核设计[4](@ref)
+    # Step 1: Compute image gradient magnitude (using Sobel operator)
+    # Define Sobel convolution kernels (horizontal and vertical directions)
     sobel_kernel_x = torch.tensor([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]], dtype=torch.float32).view(1, 1, 3, 3).to(image_tensor.device)
     sobel_kernel_y = torch.tensor([[-1, -2, -1], [0, 0, 0], [1, 2, 1]], dtype=torch.float32).view(1, 1, 3, 3).to(image_tensor.device)
 
-    # 扩展卷积核以匹配输入图像的通道数（适用于彩色图像）
-    sobel_kernel_x = sobel_kernel_x.repeat(image_tensor.shape[0], 1, 1, 1)  # 形状 [C, 1, 3, 3]
+    # Expand convolution kernels to match the number of channels of the input image (suitable for color images)
+    sobel_kernel_x = sobel_kernel_x.repeat(image_tensor.shape[0], 1, 1, 1)  # Shape [C, 1, 3, 3]
     sobel_kernel_y = sobel_kernel_y.repeat(image_tensor.shape[0], 1, 1, 1)
 
-    # 应用卷积计算梯度的水平和垂直分量
+    # Apply convolution to compute horizontal and vertical gradient components
     gx = F.conv2d(image_tensor.unsqueeze(0), sobel_kernel_x, padding=1, groups=image_tensor.shape[0]).squeeze(0)
     gy = F.conv2d(image_tensor.unsqueeze(0), sobel_kernel_y, padding=1, groups=image_tensor.shape[0]).squeeze(0)
 
-    # 计算梯度幅值（每个通道独立计算，然后取平均）：sqrt(gx^2 + gy^2)
-    gradient_magnitude = torch.sqrt(gx.pow(2) + gy.pow(2)).mean(dim=0)  # 形状 [H, W]
+    # Compute gradient magnitude (computed independently per channel, then averaged): sqrt(gx^2 + gy^2)
+    gradient_magnitude = torch.sqrt(gx.pow(2) + gy.pow(2)).mean(dim=0)  # Shape [H, W]
 
-    # 步骤2: 计算图像的平均值（参考网页6的均值计算逻辑[6](@ref)）
-    image_mean = torch.mean(image_tensor)  # 整个图像的平均值（标量）
+    # Step 2: Compute mean of image
+    image_mean = torch.mean(image_tensor)  # Mean of entire image (scalar)
 
-    # 步骤3: 生成 mask（梯度幅值大于平均值的像素为 1，否则为 0），参考网页9的 mask 生成方法[9](@ref)
-    mask = (gradient_magnitude > image_mean * ratio).float()  # 二值化，形状 [H, W]
+    # Step 3: Generate mask (pixels with gradient magnitude greater than mean are 1, otherwise 0)
+    mask = (gradient_magnitude > image_mean * ratio).float()  # Binarization, shape [H, W]
 
     return mask

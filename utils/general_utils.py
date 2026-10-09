@@ -151,106 +151,106 @@ def safe_state(silent):
 
 def sample_uniform(min_tensor, max_tensor, M):
     """
-    在两个给定的张量定义的边界内进行均匀随机采样
+    Uniformly sample randomly within the bounds defined by two given tensors.
 
-    参数:
-    min_tensor (Tensor): 包含每个维度最小值的N维张量
-    max_tensor (Tensor): 包含每个维度最大值的N维张量
-    M (int): 采样数量
+    Args:
+    min_tensor (Tensor): N-dimensional tensor containing minimum values for each dimension
+    max_tensor (Tensor): N-dimensional tensor containing maximum values for each dimension
+    M (int): Number of samples
 
-    返回:
-    Tensor: 形状为(M, N)的张量，包含随机采样的点
+    Returns:
+    Tensor: Tensor of shape (M, N) containing randomly sampled points
     """
-    # 验证输入
+    # Validate inputs
     if min_tensor.dim() != max_tensor.dim():
-        raise ValueError("min_tensor 和 max_tensor 必须具有相同的维度")
+        raise ValueError("min_tensor and max_tensor must have the same number of dimensions")
     if min_tensor.dim() != 1:
-        raise ValueError("输入张量应为1D（N维向量）")
+        raise ValueError("Input tensors should be 1D (N-dimensional vector)")
     if not torch.all(min_tensor <= max_tensor):
-        raise ValueError("所有 min_tensor 值必须小于等于 max_tensor 值")
+        raise ValueError("All min_tensor values must be less than or equal to max_tensor values")
     if M <= 0:
-        raise ValueError("采样数量 M 必须是正整数")
+        raise ValueError("Sample count M must be a positive integer")
 
-    # 获取维度数量
+    # Get number of dimensions
     N = min_tensor.size(0)
 
-    # 生成均匀分布的随机数 [0, 1)
+    # Generate uniformly distributed random numbers in [0, 1)
     rand_samples = torch.rand(M, N).to(min_tensor.device)
 
-    # 缩放到指定范围
+    # Scale to specified range
     scaled_samples = min_tensor + rand_samples * (max_tensor - min_tensor)
 
     return scaled_samples
 
 def create_gradient_mask(image_tensor, ratio = 0.1):
     """
-    基于 PyTorch 检查图像的彩色像素梯度是否大于图像平均值，并生成二值 mask。
+    Check if color pixel gradient of an image is greater than the image mean using PyTorch, and generate a binary mask.
 
-    参数:
-        image_tensor (torch.Tensor): 输入图像张量，形状为 [C, H, W]（C为通道数，H为高度，W为宽度）。
-                                    建议图像值范围 [0, 1] 或已标准化。
+    Args:
+        image_tensor (torch.Tensor): Input image tensor of shape [C, H, W] (C is channels, H is height, W is width).
+                                     Image value range [0, 1] or normalized is recommended.
 
-    返回:
-        torch.Tensor: 二值 mask，形状为 [H, W]。值为 1 表示对应像素的梯度大于图像平均值，否则为 0。
+    Returns:
+        torch.Tensor: Binary mask of shape [H, W]. Value 1 indicates pixel gradient is greater than image mean, otherwise 0.
     """
-    # 确保输入是浮点型张量，避免类型错误
+    # Ensure input is a float tensor to avoid type errors
     if image_tensor.dtype != torch.float32:
         image_tensor = image_tensor.float()
 
-    # 步骤1: 计算图像的梯度幅值（使用 Sobel 算子）
-    # 定义 Sobel 卷积核（水平和垂直方向），参考网页4的卷积核设计[4](@ref)
+    # Step 1: Compute image gradient magnitude (using Sobel operator)
+    # Define Sobel convolution kernels (horizontal and vertical directions)
     sobel_kernel_x = torch.tensor([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]], dtype=torch.float32).view(1, 1, 3, 3).to(image_tensor.device)
     sobel_kernel_y = torch.tensor([[-1, -2, -1], [0, 0, 0], [1, 2, 1]], dtype=torch.float32).view(1, 1, 3, 3).to(image_tensor.device)
 
-    # 扩展卷积核以匹配输入图像的通道数（适用于彩色图像）
-    sobel_kernel_x = sobel_kernel_x.repeat(image_tensor.shape[0], 1, 1, 1)  # 形状 [C, 1, 3, 3]
+    # Expand convolution kernels to match the number of channels of the input image (suitable for color images)
+    sobel_kernel_x = sobel_kernel_x.repeat(image_tensor.shape[0], 1, 1, 1)  # Shape [C, 1, 3, 3]
     sobel_kernel_y = sobel_kernel_y.repeat(image_tensor.shape[0], 1, 1, 1)
 
-    # 应用卷积计算梯度的水平和垂直分量
+    # Apply convolution to compute horizontal and vertical gradient components
     pad_width = (1, 1, 1, 1)
     image_pad = F.pad(
         image_tensor.unsqueeze(0),
         pad_width,
-        mode='replicate'  # 可选：'constant'（默认0）、'reflect'、'replicate'、'circular'
+        mode='replicate'  # Optional: 'constant' (default 0), 'reflect', 'replicate', 'circular'
     )
     gx = F.conv2d(image_pad, sobel_kernel_x, padding=0, groups=image_pad.shape[1]).squeeze(0)
     gy = F.conv2d(image_pad, sobel_kernel_y, padding=0, groups=image_pad.shape[1]).squeeze(0)
 
-    # 计算梯度幅值（每个通道独立计算，然后取平均）：sqrt(gx^2 + gy^2)
-    gradient_magnitude = torch.sqrt(gx.pow(2) + gy.pow(2)).mean(dim=0)  # 形状 [H, W]
+    # Compute gradient magnitude (computed independently per channel, then averaged): sqrt(gx^2 + gy^2)
+    gradient_magnitude = torch.sqrt(gx.pow(2) + gy.pow(2)).mean(dim=0)  # Shape [H, W]
 
-    # 步骤2: 计算梯度的平均值
-    grad_mean = torch.mean(gradient_magnitude)  # 整个图像的平均值（标量）
+    # Step 2: Compute mean of gradients
+    grad_mean = torch.mean(gradient_magnitude)  # Mean of entire image (scalar)
 
-    # 步骤3: 生成 mask（梯度幅值大于平均值的像素为 1，否则为 0），参考网页9的 mask 生成方法[9](@ref)
-    mask = (gradient_magnitude > grad_mean * ratio).float()  # 二值化，形状 [H, W]
+    # Step 3: Generate mask (pixels with gradient magnitude greater than mean are 1, otherwise 0)
+    mask = (gradient_magnitude > grad_mean * ratio).float()  # Binarization, shape [H, W]
 
 
     c, h, w = image_tensor.shape
-    h_grid_size = 3  # 38x38网格
+    h_grid_size = 3  # 38x38 grid
     w_grid_size = int(w/h * h_grid_size)
 
-    # 自适应块划分 [7,8](@ref)
+    # Adaptive block partitioning
     h_step = int(h / h_grid_size)
     w_step = int(w / w_grid_size)
     block_means = torch.zeros(h_grid_size, w_grid_size, device=image_tensor.device)
 
-    # 5. 遍历每个块计算平均梯度
+    # 5. Iterate through each block to compute average gradient
     for i in range(h_grid_size):
         for j in range(w_grid_size):
-            # 计算块边界 [7](@ref)
+            # Compute block boundaries
             h_start = int(i * h_step)
             h_end = min(int((i + 1) * h_step), h)
             w_start = int(j * w_step)
             w_end = min(int((j + 1) * w_step), w)
 
-            # 提取当前块区域
+            # Extract current block region
             block = gradient_magnitude[h_start:h_end, w_start:w_end]
 
-            # 计算块平均梯度 [1](@ref)
+            # Compute block average gradient
             block_means[i, j] = block.mean()
 
-    # 标记低梯度块 [13](@ref)
+    # Mark low gradient blocks
     threshold = grad_mean * ratio
     for i in range(h_grid_size):
         for j in range(w_grid_size):

@@ -117,7 +117,7 @@ def compute_rgb_projection_error(
     grid = grid.view(1, 1, -1, 2)
 
 
-    # 双线性插值采样
+    # Bilinear interpolation sampling
     sampled = F.grid_sample(
         rgb_target.unsqueeze(0),
         grid,
@@ -182,11 +182,11 @@ def compute_rgb_projection_error_and_flow_error(
 
     #Compute flow error
     grid = torch.stack([grid_x, grid_y], dim=-1)  # (N, 2)
-    # 添加批次和采样点维度 → (1, 1, N, 2)
+    # Add batch and sample point dimensions → (1, 1, N, 2)
     grid = grid.view(1, 1, -1, 2)
 
 
-    # 双线性插值采样
+    # Bilinear interpolation sampling
     sampled = F.grid_sample(
         rgb_target.unsqueeze(0),
         grid,
@@ -394,7 +394,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
 
     # Initialize visualizer
 
-    # 读取参数
+    # Load checkpoint
     if checkpoint:
         (model_params, first_iter) = torch.load(checkpoint)
         gaussians.restore(model_params, opt)
@@ -501,7 +501,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
             viewpoint_indices = list(range(len(viewpoint_stack)))
 
         rand_idx = randint(0, len(viewpoint_indices) - 1)
-        # 每个迭代从训练视角集合中随机选取一个相机，确保模型多角度学习。
+        # Randomly select a camera from the training viewpoint set in each iteration to ensure multi-view learning.
         viewpoint_cam = viewpoint_stack.pop(rand_idx)
         vind = viewpoint_indices.pop(rand_idx)
         cam_rotation, cam_translation = scene.sensor_trajectory.get_camera_pose(vind)
@@ -758,7 +758,7 @@ if __name__ == "__main__":
     # Start GUI server, configure and run training
     if not args.disable_viewer:
         network_gui.init(args.ip, args.port)
-    torch.autograd.set_detect_anomaly(args.detect_anomaly)  # 开启异常检测
+    torch.autograd.set_detect_anomaly(args.detect_anomaly)  # Enable anomaly detection
     training(lp.extract(args), op.extract(args), pp.extract(args), args.test_iterations, args.save_iterations,
              args.checkpoint_iterations, args.start_checkpoint, args.debug_from)
 

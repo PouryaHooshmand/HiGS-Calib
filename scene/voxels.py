@@ -197,13 +197,13 @@ def fit_gaussians_in_voxels(points: torch.Tensor,
         voxel_size = torch.tensor([voxel_size, voxel_size, voxel_size], device=device, dtype=dtype)
     elif isinstance(voxel_size, torch.Tensor):
         if voxel_size.shape != (3,):
-            raise ValueError("voxel_size张量的形状必须是 (3,)")
+            raise ValueError("voxel_size tensor shape must be (3,)")
         voxel_size = voxel_size.to(device=device, dtype=dtype)
     else:
-        raise TypeError("voxel_size必须是float或torch.Tensor类型")
+        raise TypeError("voxel_size must be float or torch.Tensor")
 
     if voxel_size.min() <= 0:
-        raise ValueError("voxel_size的所有元素必须大于0")
+        raise ValueError("All elements of voxel_size must be greater than 0")
 
     if min_bound is None:
         data_min_coords = points.min(dim=0).values
@@ -211,7 +211,7 @@ def fit_gaussians_in_voxels(points: torch.Tensor,
     else:
         min_bound = min_bound.to(device=device, dtype=dtype)
         if min_bound.shape != (3,):
-            raise ValueError("min_bound张量的形状必须是 (3,)")
+            raise ValueError("min_bound tensor shape must be (3,)")
         voxel_grid_origin = min_bound
 
     if max_bound is None:
@@ -220,14 +220,14 @@ def fit_gaussians_in_voxels(points: torch.Tensor,
     else:
         max_bound = max_bound.to(device=device, dtype=dtype)
         if max_bound.shape != (3,):
-            raise ValueError("max_bound张量的形状必须是 (3,)")
+            raise ValueError("max_bound tensor shape must be (3,)")
         grid_max_coord_for_dim_calc = max_bound
         
     voxel_indices = torch.floor((points - voxel_grid_origin) / voxel_size).long()
 
     grid_dims = torch.maximum(
         torch.floor((grid_max_coord_for_dim_calc - voxel_grid_origin) / voxel_size).long() + 1,
-        torch.tensor([1, 1, 1], device=device, dtype=torch.long)  # 确保至少为1x1x1
+        torch.tensor([1, 1, 1], device=device, dtype=torch.long)  # Ensure at least 1x1x1
     )
 
     voxel_indices = torch.max(voxel_indices, torch.zeros_like(voxel_indices))
@@ -255,7 +255,7 @@ def fit_gaussians_in_voxels(points: torch.Tensor,
     single_point_mask = (counts == 1)
     if single_point_mask.any():
         default_cov_matrix = torch.eye(3, device=device, dtype=dtype) * default_cov_diag_value
-        voxel_covariances[single_point_mask] = default_cov_matrix  # 自动广播
+        voxel_covariances[single_point_mask] = default_cov_matrix  # Automatic broadcasting
 
     multi_point_mask = (counts > 1)
     if multi_point_mask.any():
