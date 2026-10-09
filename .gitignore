@@ -1,0 +1,9 @@
+data
+__pycache__
+*.pyc
+output
+build/
+*.egg-info/
+*.so
+*.o
+.vscode/
