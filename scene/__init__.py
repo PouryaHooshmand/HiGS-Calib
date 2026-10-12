@@ -144,12 +144,37 @@ class Scene:
         resolution_scale = self.resolution_scales[-1]
         train_cameras = self.train_cameras[resolution_scale]
 
-        dino_weights = torch.load(os.path.join(self.weight_path, 'dinov2_vitl14_pretrain.pth'))
-        weights = torch.load(os.path.join(self.weight_path, 'roma_outdoor.pth'))
+        # Resolve RoMa and DINOv2 weights (check user path -> default local path -> PyTorch Hub)
+        search_dirs = []
+        if self.weight_path:
+            if os.path.isdir(self.weight_path):
+                search_dirs.append(self.weight_path)
+            elif os.path.isfile(self.weight_path):
+                search_dirs.append(os.path.dirname(self.weight_path))
+
+        default_dir = os.path.abspath("flows")
+        if os.path.isdir(default_dir) and default_dir not in search_dirs:
+            search_dirs.append(default_dir)
+
+        def find_and_load(filename: str, label: str):
+            for d in search_dirs:
+                p = os.path.join(d, filename)
+                if os.path.isfile(p):
+                    try:
+                        print(f"Loading local {label} weights from: {p}")
+                        return torch.load(p, map_location="cpu")
+                    except Exception as e:
+                        print(f"Warning: Failed to load {p} ({e}).")
+            print(f"Local {label} weights not found; falling back to PyTorch Hub.")
+            return None
+
+        weights = find_and_load("roma_outdoor.pth", "RoMa")
+        dino_weights = find_and_load("dinov2_vitl14_pretrain.pth", "DINOv2")
+
         H = train_cameras[0].image_height
         W = train_cameras[0].image_width
         flow_model = roma_outdoor(device='cuda', weights=weights, dinov2_weights=dino_weights, coarse_res=560,
-                                       upsample_res=(H, W), use_custom_corr=False)
+                                  upsample_res=(H, W), use_custom_corr=False)
 
         def generate_optical_flow_one_group(flow_model, cameras, window_size = 2):
             cam_num = len(cameras)
