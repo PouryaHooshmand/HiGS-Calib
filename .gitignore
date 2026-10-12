@@ -7,3 +7,6 @@ build/
 *.so
 *.o
 .vscode/
+# pixi environments
+.pixi/*
+!.pixi/config.toml

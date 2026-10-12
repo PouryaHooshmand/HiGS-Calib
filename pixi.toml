@@ -1,0 +1,38 @@
+[workspace]
+authors = ["Pourya Hooshmand <hooshi.poura@gmail.com>"]
+channels = ["conda-forge", "pytorch"]
+name = "higs-calib"
+platforms = [{ name = "my-linux-64", platform = "linux-64", cuda = "12.8" }]
+version = "0.1.0"
+
+[tasks]
+calibrate = "python calibrate.py -s data/KITTI360 --flow_path data/flows --optimizer_type sparse_adam --cam_id 00 --data_seq 2"
+test-calib = "python calibrate.py -s data/KITTI360 --flow_path data/flows --optimizer_type sparse_adam --cam_id 00 --data_seq 2 --iterations 1500 --disable_viewer -m output"
+
+[dependencies]
+plyfile = "*"
+python = "3.12.*"
+pip = "*"
+setuptools = "<76"
+wheel = "*"
+ninja = "*"
+gcc_linux-64 = "12.*"
+gxx_linux-64 = "12.*"
+cuda-toolkit = "12.8.*"
+pytorch = "2.7.0.*"
+torchaudio = "2.7.0.*"
+torchvision = "0.22.0.*"
+tqdm = "*"
+open3d = "0.19.*"
+
+[pypi-options]
+no-build-isolation = ["diff-gaussian-rasterization", "simple-knn", "fused-ssim", "pytorch3d"]
+
+[pypi-dependencies]
+opencv-python = "*"
+joblib = "*"
+romatch = "==0.1.2"
+diff-gaussian-rasterization = { git = "https://github.com/graphdeco-inria/diff-gaussian-rasterization.git", branch = "3dgs_accel" }
+simple-knn = { git = "https://gitlab.inria.fr/bkerbl/simple-knn.git" }
+fused-ssim = { git = "https://github.com/rahul-goel/fused-ssim.git" }
+pytorch3d = { git = "https://github.com/facebookresearch/pytorch3d.git", tag = "v0.7.9" }
