@@ -26,6 +26,7 @@ import numpy as np
 from romatch import roma_outdoor
 import torch
 import torch.nn.functional as F
+from PIL import Image
 
 
 class Scene:
@@ -148,7 +149,7 @@ class Scene:
         H = train_cameras[0].image_height
         W = train_cameras[0].image_width
         flow_model = roma_outdoor(device='cuda', weights=weights, dinov2_weights=dino_weights, coarse_res=560,
-                                       upsample_res=(H, W))
+                                       upsample_res=(H, W), use_custom_corr=False)
 
         def generate_optical_flow_one_group(flow_model, cameras, window_size = 2):
             cam_num = len(cameras)
@@ -172,7 +173,11 @@ class Scene:
                     print('Generating optical flow for camera %d' % i)
                     ref_image = images[i]
                     match_image = images[i+w]
-                    warp, certainty = flow_model.match_image(ref_image, match_image, device='cuda')
+                    ref_image = Image.fromarray(ref_image, mode='RGB')
+                    match_image = Image.fromarray(match_image, mode='RGB')
+                    warp, certainty = flow_model.match(ref_image, match_image, device='cuda')
+                    warp = warp[0]
+                    certainty = certainty[0]
                     flow_ref = warp[:, :W, 2:]
                     flow_match = warp[:, W:, :2]
                     certainty_ref = certainty[:, :W]
