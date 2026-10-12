@@ -10,7 +10,6 @@
 #
 
 import os
-os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
 
 import cv2
 import numpy as np
@@ -423,10 +422,9 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
     #Prepare depth maps for latter
     all_depths, all_depth_masks = generate_all_depths(scene, pipe, background, resolution_scales[current_scale_index], train_test_exp=dataset.train_test_exp, full_cut_size = cut_full_size, min_depth = min_depth, max_depth = max_depth)
 
-    sum_iterations = 10000
+    sum_iterations = min(opt.iterations, 10000)
     if fast_mode:
-        sum_iterations = 6000
-    # sum_iterations = 2000
+        sum_iterations = min(opt.iterations, 6000)
 
     for iteration in range(first_iter, sum_iterations):
         start_time = time.perf_counter()
@@ -758,6 +756,8 @@ if __name__ == "__main__":
     # Start GUI server, configure and run training
     if not args.disable_viewer:
         network_gui.init(args.ip, args.port)
+    if args.detect_anomaly:
+        os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
     torch.autograd.set_detect_anomaly(args.detect_anomaly)  # Enable anomaly detection
     training(lp.extract(args), op.extract(args), pp.extract(args), args.test_iterations, args.save_iterations,
              args.checkpoint_iterations, args.start_checkpoint, args.debug_from)
