@@ -46,21 +46,25 @@ def render(viewpoint_camera,
     tanfovx = math.tan(viewpoint_camera.FoVx * 0.5)
     tanfovy = math.tan(viewpoint_camera.FoVy * 0.5)
 
-    raster_settings = GaussianRasterizationSettings(
-        image_height=int(viewpoint_camera.image_height/downsample),
-        image_width=int(viewpoint_camera.image_width/downsample),
-        tanfovx=tanfovx,
-        tanfovy=tanfovy,
-        bg=bg_color,
-        scale_modifier=scaling_modifier,
-        viewmatrix=viewpoint_camera.world_view_transform,
-        projmatrix=viewpoint_camera.full_proj_transform,
-        sh_degree=pc.active_sh_degree,
-        campos=viewpoint_camera.camera_center,
-        prefiltered=False,
-        debug=pipe.debug,
-        antialiasing=pipe.antialiasing
-    )
+    settings_kwargs = {
+        "image_height": int(viewpoint_camera.image_height/downsample),
+        "image_width": int(viewpoint_camera.image_width/downsample),
+        "tanfovx": tanfovx,
+        "tanfovy": tanfovy,
+        "bg": bg_color,
+        "scale_modifier": scaling_modifier,
+        "viewmatrix": viewpoint_camera.world_view_transform,
+        "projmatrix": viewpoint_camera.full_proj_transform,
+        "sh_degree": pc.active_sh_degree,
+        "campos": viewpoint_camera.camera_center,
+        "prefiltered": False,
+        "debug": pipe.debug,
+    }
+    if hasattr(GaussianRasterizationSettings, "_fields") and "antialiasing" in GaussianRasterizationSettings._fields:
+        settings_kwargs["antialiasing"] = getattr(pipe, "antialiasing", False)
+
+    raster_settings = GaussianRasterizationSettings(**settings_kwargs)
+
 
     rasterizer = GaussianRasterizer(raster_settings=raster_settings)
 

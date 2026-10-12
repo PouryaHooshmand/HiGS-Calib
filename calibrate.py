@@ -262,7 +262,7 @@ def compute_match_loss(scene, vind, all_depths, all_depth_masks, resolution_scal
     loss_num = 0
     rotation_wc_ref, translation_wc_ref = scene.sensor_trajectory.get_camera_pose(vind)
     cam_num = len(scene.getTrainCameras())
-    shift_indices = [i for i in range(-window_size, window_size+1) if vind+i >=0 and vind+i<cam_num and i is not 0]
+    shift_indices = [i for i in range(-window_size, window_size+1) if vind+i >=0 and vind+i<cam_num and i != 0]
     ref_cam = scene.getTrainCameraByIndex(vind, scale=resolution_scale)
 
     for shift in shift_indices:
