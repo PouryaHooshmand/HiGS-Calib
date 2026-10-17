@@ -370,6 +370,81 @@ def generate_all_depths(scene, pipe, background, resolution_scale, train_test_ex
     return all_depths, all_depth_masks
 
 
+def save_calibrated_pose(scene, dataset):
+    """
+    Invert the calibrated LiDAR-to-camera extrinsic (T_cl) to camera-to-LiDAR (T_lc),
+    transform it into the vehicle pose/body frame using calib_cam_to_velo.txt and
+    calib_cam_to_pose.txt, update the line for the calibrated camera, and save the
+    updated calib_cam_to_pose file to the output directory (-m).
+    """
+    cam_id = dataset.cam_id
+    calib_dir = os.path.join(dataset.source_path, "calibration")
+    cam_to_pose_path = os.path.join(calib_dir, "calib_cam_to_pose.txt")
+    cam_to_velo_path = os.path.join(calib_dir, "calib_cam_to_velo.txt")
+
+    # 1. Extract final calibrated LiDAR -> Camera rotation and translation (T_cl)
+    rotation_cl_quat, translation_cl_vec = scene.sensor_trajectory.get_extrinsics()
+    R_cl = pytorch3d.transforms.quaternion_to_matrix(rotation_cl_quat.detach()).cpu().numpy().astype(np.float64)
+    t_cl = translation_cl_vec.detach().cpu().numpy().astype(np.float64)
+
+    # 2. Compute the inverse: Camera -> LiDAR (T_lc = inv(T_cl))
+    R_lc = R_cl.T
+    t_lc = -R_lc @ t_cl
+    T_lc = np.eye(4, dtype=np.float64)
+    T_lc[:3, :3] = R_lc
+    T_lc[:3, 3] = t_lc
+
+    # 3. Read calib_cam_to_velo.txt (T_velo_cam00) and calib_cam_to_pose.txt (T_body_cam00)
+    #    to compute T_body_velo = T_body_cam00 @ inv(T_velo_cam00)
+    with open(cam_to_velo_path, "r") as f:
+        T_velo_cam00 = np.eye(4, dtype=np.float64)
+        T_velo_cam00[:3, :4] = np.array([float(x) for x in f.read().split()], dtype=np.float64).reshape(3, 4)
+
+    with open(cam_to_pose_path, "r") as f:
+        pose_lines = f.readlines()
+
+    T_body_cam00 = None
+    for line in pose_lines:
+        if line.startswith("image_00:"):
+            parts = line.split()
+            T_body_cam00 = np.eye(4, dtype=np.float64)
+            T_body_cam00[:3, :4] = np.array([float(x) for x in parts[1:]], dtype=np.float64).reshape(3, 4)
+            break
+
+    if T_body_cam00 is None:
+        raise RuntimeError(f"Could not find 'image_00:' entry in {cam_to_pose_path}")
+
+    T_body_velo = T_body_cam00 @ np.linalg.inv(T_velo_cam00)
+
+    # 4. Transform calibrated Camera -> LiDAR (T_lc) into Camera -> Pose/Body (T_body_camXX)
+    T_body_cam_new = T_body_velo @ T_lc
+    reshaped_values = T_body_cam_new[:3, :4].reshape(-1)
+    formatted_values = " ".join(f"{val:.10f}" for val in reshaped_values)
+
+    # 5. Update the respective camera line in calib_cam_to_pose.txt
+    target_prefix = f"image_{cam_id}:"
+    updated_lines = []
+    line_updated = False
+    for line in pose_lines:
+        if line.startswith(target_prefix):
+            updated_lines.append(f"{target_prefix} {formatted_values}\n")
+            line_updated = True
+        else:
+            updated_lines.append(line)
+
+    if not line_updated:
+        updated_lines.append(f"{target_prefix} {formatted_values}\n")
+
+    # 6. Save to the output directory (-m)
+    os.makedirs(dataset.model_path, exist_ok=True)
+    output_file = os.path.join(dataset.model_path, f"calib_cam_to_pose_cam{cam_id}.txt")
+    with open(output_file, "w") as f:
+        f.writelines(updated_lines)
+
+    print(f"Saved updated calibration for camera {cam_id} to: {output_file}")
+    return output_file
+
+
 def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoint_iterations, checkpoint, debug_from):
     if not SPARSE_ADAM_AVAILABLE and opt.optimizer_type == "sparse_adam":
         sys.exit(
@@ -723,6 +798,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
     print('Calibrated translation: ')
     print(scene.sensor_trajectory.translation_cl.detach().cpu().numpy())
 
+    save_calibrated_pose(scene, dataset)
 
 if __name__ == "__main__":
     # Set up command line argument parser
