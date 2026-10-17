@@ -6,8 +6,8 @@ platforms = [{ name = "my-linux-64", platform = "linux-64", cuda = "12.8" }]
 version = "0.1.0"
 
 [tasks]
-calibrate = "python calibrate.py -s data/KITTI360 --flow_path data/flows --optimizer_type sparse_adam --cam_id 00 --data_seq 2"
-test-calib = "python calibrate.py -s data/KITTI360 --flow_path data/flows --optimizer_type sparse_adam --cam_id 00 --data_seq 2 --iterations 1500 --disable_viewer -m output"
+calibrate = "python calibrate.py -s data/KITTI360 --optimizer_type sparse_adam --cam_id 00 --data_seq 2"
+test-calib = "python calibrate.py -s data/KITTI360 --optimizer_type sparse_adam --cam_id 00 --data_seq 2 --iterations 1500 --disable_viewer"
 
 [dependencies]
 plyfile = "*"
@@ -24,12 +24,12 @@ torchaudio = "2.7.0.*"
 torchvision = "0.22.0.*"
 tqdm = "*"
 open3d = "0.19.*"
+opencv = ">=4.10"
 
 [pypi-options]
 no-build-isolation = ["diff-gaussian-rasterization", "simple-knn", "fused-ssim", "pytorch3d"]
 
 [pypi-dependencies]
-opencv-python = "*"
 joblib = "*"
 romatch = "==0.1.2"
 diff-gaussian-rasterization = { git = "https://github.com/graphdeco-inria/diff-gaussian-rasterization.git", branch = "3dgs_accel" }
