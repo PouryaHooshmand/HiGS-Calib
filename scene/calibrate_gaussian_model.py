@@ -22,6 +22,7 @@ from simple_knn._C import distCUDA2
 from utils.graphics_utils import BasicPointCloud
 from utils.general_utils import strip_symmetric, build_scaling_rotation
 from scene.voxels import *
+from scene.gaussian_model import GaussianModel
 
 try:
     from diff_gaussian_rasterization import SparseGaussianAdam
@@ -29,47 +30,26 @@ except:
     pass
 
 
-class CalibrateGaussianModel:
-
-    def setup_functions(self):
-        def build_covariance_from_scaling_rotation(scaling, scaling_modifier, rotation):
-            L = build_scaling_rotation(scaling_modifier * scaling, rotation)
-            actual_covariance = L @ L.transpose(1, 2)  # Construct covariance matrix Sigma=RS(SR^T)
-            symm = strip_symmetric(actual_covariance)  # Since it is a symmetric matrix, only 6 elements need to be stored
-            return symm
-
-        self.scaling_activation = torch.exp  # Actual scaling parameter: exp(log_scaling)
-        self.scaling_inverse_activation = torch.log
-
-        self.covariance_activation = build_covariance_from_scaling_rotation
-
-        self.opacity_activation = torch.sigmoid  # Opacity: sigmoid(log_opacity)
-        self.inverse_opacity_activation = inverse_sigmoid
-        self.rotation_activation = torch.nn.functional.normalize  # Quaternion normalization
+class CalibrateGaussianModel(GaussianModel):
 
     def __init__(self, sh_degree, optimizer_type="default"):
-        self.active_sh_degree = 0
-        self.optimizer_type = optimizer_type
-        self.max_sh_degree = sh_degree
+        super().__init__(sh_degree, optimizer_type)
         self._rotation_wl = None
         self._translation_wl = None
         self._projection_matrix = None
         self.original_point_cloud = None
         self._initial_means = None
 
-        self.spatial_lr_scale = 0
-        self.setup_functions()
-
-    #TODO: Not implemented yet.
-    # def capture(self):
-    #     return (
+    # TODO: Not implemented yet.
+    def capture(self):
+        #     return (
     #         self.active_sh_degree,
     #         self._rotation_wl,
     #         self._translation_wl,
     #     )
+        raise NotImplementedError("capture is not implemented in CalibrateGaussianModel.")
 
-
-    #TODO: Not implemented yet.
+    # TODO: Not implemented yet.
     def restore(self, model_args, training_args):
         # (self.active_sh_degree,
         #  self._xyz,
@@ -89,14 +69,13 @@ class CalibrateGaussianModel:
         # self.optimizer.load_state_dict(opt_dict)
         return
 
-
     # Initialize model using point cloud
     def create_from_pcd(self, pcd: BasicPointCloud,
                         spatial_lr_scale: float,
                         rotation_wl_param: nn.Parameter,
                         translation_wl_param: nn.Parameter):
-        #rotation_wl 3*3 matrix
-        #translation_wl 3*1 vector
+        # rotation_wl 3*3 matrix
+        # translation_wl 3*1 vector
         self._rotation_wl = rotation_wl_param
         self._translation_wl = translation_wl_param
         self.spatial_lr_scale = spatial_lr_scale
@@ -104,48 +83,68 @@ class CalibrateGaussianModel:
         self._initial_means = fused_point_cloud
         self.original_point_cloud = fused_point_cloud
 
-class CalibrateGaussianListModel:
+    def load_ply(self, path, use_train_test_exp=False):
+        # Calibration models represent LiDAR frames and do not use camera exposure
+        super().load_ply(path, use_train_test_exp=False)
+        self._initial_means = self._xyz
+        self.original_point_cloud = self._xyz
 
-    def setup_functions(self):
-        def build_covariance_from_scaling_rotation(scaling, scaling_modifier, rotation):
-            L = build_scaling_rotation(scaling_modifier * scaling, rotation)
-            actual_covariance = L @ L.transpose(1, 2)  # Construct covariance matrix Sigma=RS(SR^T)
-            symm = strip_symmetric(actual_covariance)  # Since it is a symmetric matrix, only 6 elements need to be stored
-            return symm
+    # ----------------------------------------------------------------------------------
+    # Functions from GaussianModel excluded because they are not supported in CalibrateGaussianModel:
+    # ----------------------------------------------------------------------------------
 
-        self.scaling_activation = torch.exp  # Actual scaling parameter: exp(log_scaling)
-        self.scaling_inverse_activation = torch.log
+    @property
+    def get_exposure(self):
+        raise NotImplementedError("Exposure parameters are not supported in CalibrateGaussianModel.")
 
-        self.covariance_activation = build_covariance_from_scaling_rotation
+    def get_exposure_from_name(self, image_name):
+        raise NotImplementedError("Exposure parameters are not supported in CalibrateGaussianModel.")
 
-        self.opacity_activation = torch.sigmoid  # Opacity: sigmoid(log_opacity)
-        self.inverse_opacity_activation = inverse_sigmoid
-        self.rotation_activation = torch.nn.functional.normalize  # Quaternion normalization
+    def training_setup(self, training_args):
+        raise NotImplementedError("training_setup is not supported in CalibrateGaussianModel.")
+
+    def update_learning_rate(self, iteration):
+        raise NotImplementedError("update_learning_rate is not supported in CalibrateGaussianModel.")
+
+    def reset_opacity(self):
+        raise NotImplementedError("reset_opacity is not supported in CalibrateGaussianModel.")
+
+    def replace_tensor_to_optimizer(self, tensor, name):
+        raise NotImplementedError("replace_tensor_to_optimizer is not supported in CalibrateGaussianModel.")
+
+    def _prune_optimizer(self, mask):
+        raise NotImplementedError("_prune_optimizer is not supported in CalibrateGaussianModel.")
+
+    def prune_points(self, mask):
+        raise NotImplementedError("prune_points is not supported in CalibrateGaussianModel.")
+
+    def cat_tensors_to_optimizer(self, tensors_dict):
+        raise NotImplementedError("cat_tensors_to_optimizer is not supported in CalibrateGaussianModel.")
+
+    def densification_postfix(self, *args, **kwargs):
+        raise NotImplementedError("densification_postfix is not supported in CalibrateGaussianModel.")
+
+    def densify_and_split(self, *args, **kwargs):
+        raise NotImplementedError("densify_and_split is not supported in CalibrateGaussianModel.")
+
+    def densify_and_clone(self, *args, **kwargs):
+        raise NotImplementedError("densify_and_clone is not supported in CalibrateGaussianModel.")
+
+    def densify_and_prune(self, *args, **kwargs):
+        raise NotImplementedError("densify_and_prune is not supported in CalibrateGaussianModel.")
+
+    def add_densification_stats(self, *args, **kwargs):
+        raise NotImplementedError("add_densification_stats is not supported in CalibrateGaussianModel.")
+
+    def save_ply(self, path):
+        raise NotImplementedError("save_ply is not supported in CalibrateGaussianModel.")
+
+class CalibrateGaussianListModel(GaussianModel):
 
     def __init__(self, sh_degree, optimizer_type="default"):
-        self.active_sh_degree = 0
-        self.optimizer_type = optimizer_type
-        self.max_sh_degree = sh_degree
-
+        super().__init__(sh_degree, optimizer_type)
         self.gaussian_model_list = []
-        self.max_sh_degree = sh_degree
-        self._xyz = torch.empty(0)  # Gaussian center coordinates [N, 3]
-        self._features_dc = torch.empty(0)  # Spherical harmonics DC component [N, 1, 3], order 0 SH (diffuse color)
-        self._features_rest = torch.empty(0)  # Spherical harmonics higher-order components [N, (sh_degree+1)^2-1, 3], order 1+ (specular reflection and high-frequency details)
-        self._scaling = torch.empty(0)  # Scaling in log form [N, 3]
-        self._rotation = torch.empty(0)  # Quaternion [N, 4]
-        self._opacity = torch.empty(0)  # Opacity in logit form [N, 1]
-        self.max_radii2D = torch.empty(0)  # Max radius of each Gaussian projected to 2D [N]
-        self.xyz_gradient_accum = torch.empty(0)  # Position gradient accumulation [N, 1]
-        self.denom = torch.empty(0)  # Gradient normalization denominator [N, 1]
-
-
         self.color_encoder = None
-        self.optimizer = None
-        self.percent_dense = 0
-        self.spatial_lr_scale = 0
-        # Parameter activation functions
-        self.setup_functions()
 
     def capture(self):
         capture_list = {}
@@ -153,7 +152,7 @@ class CalibrateGaussianListModel:
             capture_list[f'model_{index}'] = model.capture()
         return capture_list
 
-    #TODO: Not implemented yet
+    # TODO: Not implemented yet
     def restore(self, model_args, training_args):
         # (self.active_sh_degree,
         #  self._xyz,
@@ -173,44 +172,11 @@ class CalibrateGaussianListModel:
         # self.optimizer.load_state_dict(opt_dict)
         return
 
-    @property
-    def get_scaling(self):
-        return self.scaling_activation(self._scaling)
-
-    @property
-    def get_rotation(self):
-        return self.rotation_activation(self._rotation)
-
-    @property
-    def get_xyz(self):
-        return self._xyz
-
-    @property
-    def get_features(self):
-        features_dc = self._features_dc
-        features_rest = self._features_rest
-        return torch.cat((features_dc, features_rest), dim=1)
-
-    @property
-    def get_features_dc(self):
-        return self._features_dc
-
-    @property
-    def get_features_rest(self):
-        return self._features_rest
-
-    @property
-    def get_opacity(self):
-        return self.opacity_activation(self._opacity)
-
-    def get_covariance(self, scaling_modifier=1):
-        return self.covariance_activation(self.get_scaling, scaling_modifier, self._rotation)
-
     # Initialize model using point cloud
     def create_from_pcd_list(self, pcd_list: list, spatial_lr_scale: float, rotations_wl_list: list, translations_wl_list: list,  projection_matrix, resolution:float):
         assert len(pcd_list) == len(rotations_wl_list)
         assert len(pcd_list) == len(translations_wl_list)
-        #Initialize gaussian model one by one
+        # Initialize gaussian model one by one
         points_list = []
         colors_list = []
         gaussian_num = len(pcd_list)
@@ -231,9 +197,6 @@ class CalibrateGaussianListModel:
             self.gaussian_model_list[i]._projection_matrix = projection_matrix
             self.gaussian_model_list[i].create_from_pcd(pcd_list[i], spatial_lr_scale, rotations_wl_list[i], translations_wl_list[i])
 
-
-
-
     # Initialize model using point cloud
     def create_from_pcd(self, fused_point_cloud, colors,
                         spatial_lr_scale: float,
@@ -247,7 +210,6 @@ class CalibrateGaussianListModel:
             voxel_size=resolution,
             default_cov_diag_value=resolution * resolution * 0.2
         )
-        #
         fused_point_cloud = final_means_large
 
         # min_bound = torch.min(fused_point_cloud, dim=0)
@@ -289,10 +251,9 @@ class CalibrateGaussianListModel:
         self._opacity = nn.Parameter(opacities).requires_grad_(True)
         self.max_radii2D = torch.zeros((self.get_xyz.shape[0]), device="cuda")
 
-
     def densify_gaussian_model(self, resolution: float):
         fused_point_cloud = self.original_point_cloud
-        #Offer a small delta to the position
+        # Offer a small delta to the position
         stds = self.get_scaling
         means = torch.zeros((stds.size(0), 3), device="cuda")
         samples = torch.normal(mean=means, std=stds)
@@ -369,20 +330,6 @@ class CalibrateGaussianListModel:
                 param_group['lr'] = lr
                 return lr
 
-    def construct_list_of_attributes(self):
-        l = ['x', 'y', 'z', 'nx', 'ny', 'nz']
-        # All channels except the 3 DC
-        for i in range(self._features_dc.shape[1] * self._features_dc.shape[2]):
-            l.append('f_dc_{}'.format(i))
-        for i in range(self._features_rest.shape[1] * self._features_rest.shape[2]):
-            l.append('f_rest_{}'.format(i))
-        l.append('opacity')
-        for i in range(self._scaling.shape[1]):
-            l.append('scale_{}'.format(i))
-        for i in range(self._rotation.shape[1]):
-            l.append('rot_{}'.format(i))
-        return l
-
     def save_ply(self, path):
         mkdir_p(os.path.dirname(path))
 
@@ -402,7 +349,7 @@ class CalibrateGaussianListModel:
         el = PlyElement.describe(elements, 'vertex')
         PlyData([el]).write(path)
 
-    #TODO: continue to modify the state in the global optimizer
+    # TODO: continue to modify the state in the global optimizer
     def reset_opacity(self):
         optimizable_tensor_list = []
         for model in self.gaussian_model_list:
@@ -424,10 +371,47 @@ class CalibrateGaussianListModel:
         optimizable_tensors['opacity'] = global_tensor_list
         return optimizable_tensors
 
-
     def load_ply(self, path_list, use_train_test_exp=False):
         assert len(path_list) == len(self.gaussian_model_list)
         for index, model in enumerate(self.gaussian_model_list):
             model.load_ply(path_list[index], use_train_test_exp=use_train_test_exp)
+
+    # ----------------------------------------------------------------------------------
+    # Functions from GaussianModel excluded because they are not supported in CalibrateGaussianListModel:
+    # ----------------------------------------------------------------------------------
+
+    @property
+    def get_exposure(self):
+        raise NotImplementedError("Exposure parameters are not supported in CalibrateGaussianListModel.")
+
+    def get_exposure_from_name(self, image_name):
+        raise NotImplementedError("Exposure parameters are not supported in CalibrateGaussianListModel.")
+
+    def densification_postfix(self, *args, **kwargs):
+        raise NotImplementedError("densification_postfix is not supported in CalibrateGaussianListModel; use densify_gaussian_model instead.")
+
+    def densify_and_split(self, *args, **kwargs):
+        raise NotImplementedError("densify_and_split is not supported in CalibrateGaussianListModel; use densify_gaussian_model instead.")
+
+    def densify_and_clone(self, *args, **kwargs):
+        raise NotImplementedError("densify_and_clone is not supported in CalibrateGaussianListModel; use densify_gaussian_model instead.")
+
+    def densify_and_prune(self, *args, **kwargs):
+        raise NotImplementedError("densify_and_prune is not supported in CalibrateGaussianListModel; use densify_gaussian_model instead.")
+
+    def add_densification_stats(self, *args, **kwargs):
+        raise NotImplementedError("add_densification_stats is not supported in CalibrateGaussianListModel.")
+
+    def prune_points(self, mask):
+        raise NotImplementedError("prune_points is not supported in CalibrateGaussianListModel.")
+
+    def _prune_optimizer(self, mask):
+        raise NotImplementedError("_prune_optimizer is not supported in CalibrateGaussianListModel.")
+
+    def cat_tensors_to_optimizer(self, tensors_dict):
+        raise NotImplementedError("cat_tensors_to_optimizer is not supported in CalibrateGaussianListModel.")
+
+    def replace_tensor_to_optimizer(self, tensor, name):
+        raise NotImplementedError("replace_tensor_to_optimizer is not supported in CalibrateGaussianListModel.")
 
 
