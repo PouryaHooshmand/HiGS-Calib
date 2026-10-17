@@ -467,6 +467,12 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
     scene.sensor_trajectory.training_setup(opt)
 
     # Initialize visualizer
+    pose_viz_thread = None
+    if opt.visualize_pose:
+        try:
+            pose_viz_thread = visualize(scene)
+        except Exception as e:
+            print(f"[Visualizer] Could not start 3D pose visualizer: {e}")
 
     # Load checkpoint
     if checkpoint:
@@ -492,6 +498,42 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
     cut_full_size = 10
     min_depth = 0.1
     max_depth = 50.
+
+    # -------------------------------------------------------------------------
+    # Visualization setup: precompute static assets for in-loop LiDAR projection
+    # -------------------------------------------------------------------------
+    vis_img_index = min(5, len(scene.getTrainCameras()) - 1)
+    vis_points_lidar = None
+    vis_original_img = None
+    vis_P = None
+    vis_has_gui = True
+    vis_save_dir = os.path.join(dataset.model_path, "vis_projection")
+
+    if opt.visualize_projection:
+        os.makedirs(vis_save_dir, exist_ok=True)
+        all_point_clouds = []
+        start_idx = max(0, vis_img_index - 2)
+        end_idx = min(len(gaussians.gaussian_model_list), vis_img_index + 3)
+        for i in range(start_idx, end_idx):
+            example_gaussian = gaussians.gaussian_model_list[i]
+            point_cloud = example_gaussian._initial_means.detach()
+            rotation_wl, translation_wl = scene.sensor_trajectory.get_lidar_pose(i)
+            rotation_wl = pytorch3d.transforms.quaternion_to_matrix(rotation_wl.detach())
+            translation_wl = translation_wl.detach()
+            point_cloud_world = point_cloud @ rotation_wl.T + translation_wl
+            all_point_clouds.append(point_cloud_world)
+
+        points_world = torch.cat(all_point_clouds, dim=0)
+        rotation_wl_curr, translation_wl_curr = scene.sensor_trajectory.get_lidar_pose(vis_img_index)
+        rotation_wl_curr = pytorch3d.transforms.quaternion_to_matrix(rotation_wl_curr.detach())
+        translation_wl_curr = - rotation_wl_curr.T @ translation_wl_curr
+        rotation_wl_curr = rotation_wl_curr.T
+        points_lidar = points_world @ rotation_wl_curr.T + translation_wl_curr
+        vis_points_lidar = points_lidar.detach().cpu().numpy()
+
+        cam_vis = scene.getTrainCameras()[vis_img_index]
+        vis_P = cam_vis.projection_matrix.detach().cpu().transpose(0, 1).numpy()
+        vis_original_img = (cam_vis.original_image.detach().cpu().permute(1, 2, 0).numpy() * 255).astype(np.uint8)
 
     depth_view = None
     #Prepare depth maps for latter
@@ -690,58 +732,71 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         iter_end.record()
 
         with torch.no_grad():
-            # if iteration % 10 == 0:
-            #     img_index = 5
-            #     if vind == img_index:
-            #         depth_view = torch.clamp(render_pkg["depth"].detach().cpu(), 0.0, 1.0) * 4
-            #         depth_view[torch.logical_not(depth_mask)] = 0.
-            #         depth_view = depth_view.squeeze(0).numpy()
-            #         rgb_view = torch.clamp(render_pkg["render"].detach().cpu(), 0.0, 1.0).permute(1, 2, 0).numpy()
-            #         gt_view = gt_image.detach().cpu().permute(1, 2, 0).numpy()
-            #
-            #     all_point_clouds = []
-            #     for i in range(img_index - 2, img_index + 2):
-            #         # Lidar coord
-            #         example_gaussian = gaussians.gaussian_model_list[i]
-            #         # point_cloud = example_gaussian.original_point_cloud.detach()
-            #         point_cloud = example_gaussian._initial_means.detach()
-            #         # Convert to world
-            #         rotation_wl, translation_wl = scene.sensor_trajectory.get_lidar_pose(i)
-            #         rotation_wl = pytorch3d.transforms.quaternion_to_matrix(rotation_wl.detach())
-            #         translation_wl = translation_wl.detach()
-            #         point_cloud_world = point_cloud @ rotation_wl.T + translation_wl
-            #         #
-            #         # point_cloud_world = example_gaussian._xyz.detach()
-            #         all_point_clouds.append(point_cloud_world)
-            #
-            #     points_world = torch.concatenate(all_point_clouds, dim=0)
-            #     rotation_wl_curr, translation_wl_curr = scene.sensor_trajectory.get_lidar_pose(img_index)
-            #     rotation_wl_curr = pytorch3d.transforms.quaternion_to_matrix(rotation_wl_curr.detach())
-            #     translation_wl_curr = - rotation_wl_curr.T @ translation_wl_curr
-            #     rotation_wl_curr = rotation_wl_curr.T
-            #     points_lidar = points_world @ rotation_wl_curr.T + translation_wl_curr
-            #     points_lidar = points_lidar.detach().cpu().numpy()
-            #     rotation_cl, translation_cl = scene.sensor_trajectory.get_extrinsics()
-            #     # rotation_cl_numpy = rotation_cl.detach().cpu().numpy()
-            #     # translation_cl_numpy = translation_cl.detach().cpu().numpy()
-            #     rotation_cl = pytorch3d.transforms.quaternion_to_matrix(rotation_cl.detach()).cpu().numpy()
-            #     translation_cl = translation_cl.detach().cpu().numpy()
-            #
-            #     T_cl = np.eye(4)
-            #     T_cl[:3, :3] = rotation_cl
-            #     T_cl[:3, 3] = translation_cl
-            #
-            #     viewpoint_stack_debug = scene.getTrainCameras().copy()
-            #     trained_images = scene.getTrainImages()
-            #     original_img = trained_images[img_index]
-            #     P = viewpoint_stack_debug[img_index].projection_matrix.detach().cpu().transpose(0, 1).numpy()
-            #     projected_img2 = project_lidar_to_image_with_projection(points_lidar, original_img, P, T_cl)
-            #
-            #     if depth_view is not None:
-            #         cv2.imshow('projected_img', projected_img2)
-            #     if depth_view is not None:
-            #         cv2.imshow('depth_view', depth_view)
-            #     cv2.waitKey(3)
+            # In-loop LiDAR-camera projection and depth alignment inspection
+            if opt.visualize_projection and (iteration % 10 == 0 or iteration == opt.iterations - 1):
+                rotation_cl, translation_cl = scene.sensor_trajectory.get_extrinsics()
+                rotation_cl = pytorch3d.transforms.quaternion_to_matrix(rotation_cl.detach()).cpu().numpy()
+                translation_cl = translation_cl.detach().cpu().numpy()
+
+                T_cl = np.eye(4, dtype=np.float32)
+                T_cl[:3, :3] = rotation_cl
+                T_cl[:3, 3] = translation_cl
+
+                projected_img = project_lidar_to_image_with_projection(
+                    vis_points_lidar, vis_original_img, vis_P, T_cl
+                )
+                # Convert RGB to BGR for OpenCV
+                projected_img_bgr = cv2.cvtColor(projected_img, cv2.COLOR_RGB2BGR)
+
+                # Fetch corresponding depth map for the reference view
+                if vind == vis_img_index:
+                    raw_depth = render_pkg["depth"].detach().cpu().squeeze()
+                    raw_mask = depth_mask.detach().cpu().squeeze()
+                elif all_depths is not None and len(all_depths) > vis_img_index:
+                    raw_depth = all_depths[vis_img_index].detach().cpu().squeeze()
+                    raw_mask = all_depth_masks[vis_img_index].detach().cpu().squeeze()
+                else:
+                    raw_depth = None
+                    raw_mask = None
+
+                if raw_depth is not None:
+                    depth_np = raw_depth.numpy().copy()
+                    mask_np = raw_mask.numpy() if raw_mask is not None else (depth_np > 0)
+                    depth_np[~mask_np] = 0.0
+
+                    if mask_np.any():
+                        d_min = np.percentile(depth_np[mask_np], 2)
+                        d_max = np.percentile(depth_np[mask_np], 98)
+                        norm_depth = np.clip((depth_np - d_min) / (d_max - d_min + 1e-7), 0.0, 1.0)
+                    else:
+                        norm_depth = np.clip(depth_np, 0.0, 1.0)
+
+                    depth_colored = cv2.applyColorMap((norm_depth * 255).astype(np.uint8), cv2.COLORMAP_JET)
+                    depth_colored[~mask_np] = 0
+
+                    if depth_colored.shape[:2] != projected_img_bgr.shape[:2]:
+                        depth_colored = cv2.resize(
+                            depth_colored,
+                            (projected_img_bgr.shape[1], projected_img_bgr.shape[0]),
+                            interpolation=cv2.INTER_NEAREST
+                        )
+                    # Compose top-and-bottom comparison: [Projected LiDAR (Top) / Rendered 3DGS Depth (Bottom)]
+                    vis_display = np.vstack([projected_img_bgr, depth_colored])
+                else:
+                    vis_display = projected_img_bgr
+
+                if vis_has_gui:
+                    try:
+                        cv2.imshow("HiGS-Calib: LiDAR Projection (Top) vs Rendered Depth (Bottom)", vis_display)
+                        cv2.waitKey(1)
+                    except cv2.error:
+                        vis_has_gui = False
+                        print(f"[Visualizer] GUI display unavailable. Saving visual snapshots to {vis_save_dir}/")
+
+                # Always update the latest view on disk, and periodically save history checkpoints
+                cv2.imwrite(os.path.join(vis_save_dir, "latest.jpg"), vis_display)
+                if iteration % 100 == 0:
+                    cv2.imwrite(os.path.join(vis_save_dir, f"iter_{iteration:05d}.jpg"), vis_display)
 
 
             # Progress bar
@@ -780,6 +835,8 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                         scene.sensor_trajectory.optimizer.step()
                         scene.sensor_trajectory.update_extrinsics()
                         scene.sensor_trajectory.optimizer.zero_grad(set_to_none=True)
+                        if pose_viz_thread is not None and pose_viz_thread.is_alive():
+                            update_current_poses(scene, pose_viz_thread)
                         all_depths, all_depth_masks = generate_all_depths(scene, pipe, background,
                                                                           resolution_scales[current_scale_index],
                                                                           train_test_exp=dataset.train_test_exp,
@@ -799,6 +856,26 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
     print(scene.sensor_trajectory.translation_cl.detach().cpu().numpy())
 
     save_calibrated_pose(scene, dataset)
+
+    if opt.visualize_projection and vis_points_lidar is not None:
+        final_vis_path = os.path.join(dataset.model_path, "final_calibrated_projection.jpg")
+        rotation_cl, translation_cl = scene.sensor_trajectory.get_extrinsics()
+        rotation_cl = pytorch3d.transforms.quaternion_to_matrix(rotation_cl.detach()).cpu().numpy()
+        translation_cl = translation_cl.detach().cpu().numpy()
+        T_cl = np.eye(4, dtype=np.float32)
+        T_cl[:3, :3] = rotation_cl
+        T_cl[:3, 3] = translation_cl
+        final_projected = project_lidar_to_image_with_projection(vis_points_lidar, vis_original_img, vis_P, T_cl)
+        cv2.imwrite(final_vis_path, cv2.cvtColor(final_projected, cv2.COLOR_RGB2BGR))
+        print(f"Saved final visual calibration projection to: {final_vis_path}")
+
+        if vis_has_gui:
+            cv2.destroyAllWindows()
+
+    if pose_viz_thread is not None:
+        pose_viz_thread.stop()
+        pose_viz_thread.join(timeout=2)
+
 
 if __name__ == "__main__":
     # Set up command line argument parser
