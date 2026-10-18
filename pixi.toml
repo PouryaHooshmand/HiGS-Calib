@@ -23,7 +23,7 @@ pytorch-gpu = "2.7.0.*"
 torchaudio = "2.7.0.*"
 torchvision = "0.22.0.*"
 tqdm = "*"
-opencv = ">=4.10"
+opencv = { version = ">=4.10", build = "qt6*" }
 tensorboard = ">=2.20.0,<3"
 
 [pypi-options]
