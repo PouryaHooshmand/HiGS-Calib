@@ -900,11 +900,34 @@ if __name__ == "__main__":
     parser.add_argument("--start_checkpoint", type=str, default=None)
     parser.add_argument("--cam_id", type=str, default=None)
     parser.add_argument("--data_seq", type=int, default=None)
+    parser.add_argument("--init_calib_file", type=str, default=None,
+                        help="Path to initial calibration file (calib_cam_to_pose.txt or calib_cam_to_velo.txt format)")
+    parser.add_argument("--init_from_gt", action="store_true", default=False,
+                        help="Initialize extrinsics from ground truth T_cl (plus any specified error)")
+    parser.add_argument("--rot_error_deg", nargs=3, type=float, default=None,
+                        metavar=("ROLL", "PITCH", "YAW"),
+                        help="Deterministic Euler rotation error (deg) added to initial/GT extrinsics")
+    parser.add_argument("--trans_error_m", nargs=3, type=float, default=None,
+                        metavar=("DX", "DY", "DZ"),
+                        help="Deterministic translation error (m) added to initial/GT extrinsics")
+    parser.add_argument("--rand_rot_deg", type=float, default=None,
+                        help="Uniform random rotation error bound [-val, +val] (deg) per axis")
+    parser.add_argument("--rand_trans_m", type=float, default=None,
+                        help="Uniform random translation error bound [-val, +val] (m) per axis")
+    parser.add_argument("--calib_seed", type=int, default=None,
+                        help="Random seed for sampling random calibration perturbations")
 
     args = parser.parse_args(sys.argv[1:])
     args.save_iterations.append(args.iterations)
     lp.cam_id = args.cam_id
     lp.data_seq = args.data_seq
+    lp.init_calib_file = args.init_calib_file
+    lp.init_from_gt = args.init_from_gt
+    lp.rot_error_deg = args.rot_error_deg
+    lp.trans_error_m = args.trans_error_m
+    lp.rand_rot_deg = args.rand_rot_deg
+    lp.rand_trans_m = args.rand_trans_m
+    lp.calib_seed = args.calib_seed
     # print("Optimizing " + args.model_path)
 
     # Initialize system state (RNG)

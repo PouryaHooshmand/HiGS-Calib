@@ -21,7 +21,7 @@ from scene.dataset_readers import sceneLoadTypeCallbacks
 from arguments import ModelParams
 from utils.camera_utils import cameraList_from_camInfos, camera_to_JSON
 from scene.calibrate_gaussian_model import CalibrateGaussianModel, CalibrateGaussianListModel
-from sensors.sensor_trajectories import SensorTrajectories
+from sensors.sensor_trajectories import SensorTrajectories, build_initial_pose_cl
 import numpy as np
 from romatch import roma_outdoor
 import torch
@@ -101,11 +101,13 @@ class Scene:
         #Generate flow model, the resolution should be the finest one
         self.generate_optical_flow()
 
-        initialized_pose_cl = None
-        if dataset_type == 'KITTI360' or 'KITTI':
-            initial_rotation_mat = np.array([[0., -1., 0.], [0., 0., -1.], [1., 0., 0.]])
-            initialized_pose_cl = np.eye(4)
-            initialized_pose_cl[:3,:3]  = initial_rotation_mat
+        calib_dir = os.path.join(args.source_path, "calibration")
+        initialized_pose_cl = build_initial_pose_cl(
+            gt_pose_cl=scene_info_list.pose_cl,
+            args=args,
+            calib_dir=calib_dir,
+            cam_id=args.cam_id,
+        )
 
         # Generate trajectory
         self.sensor_trajectory = SensorTrajectories(
@@ -116,6 +118,15 @@ class Scene:
             initialized_pose_cl=initialized_pose_cl
         )
 
+        init_rot_err, init_trans_err = self.sensor_trajectory.get_extrinsic_error()
+        print(
+            f"[Extrinsics Init] Initial rotation error (deg): {init_rot_err.numpy().round(4).tolist()} "
+            f"(L2={torch.norm(init_rot_err).item():.4f} deg)"
+        )
+        print(
+            f"[Extrinsics Init] Initial translation error (m): {init_trans_err.numpy().round(4).tolist()} "
+            f"(L2={torch.norm(init_trans_err).item():.4f} m)"
+        )
 
 
         for resolution_scale in resolution_scales:
