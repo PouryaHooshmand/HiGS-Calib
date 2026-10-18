@@ -807,6 +807,10 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                     match_loss_info = match_loss.item()
                 progress_bar.set_postfix({"Loss": f"{ema_loss_for_log:.{7}f}", "rotation_err": rotation_err.numpy().tolist(),
                                           "translation_err": translation_err.numpy().tolist()})
+                if TENSORBOARD_FOUND:
+                    writer.add_scalar("Loss/train", ema_loss_for_log, iteration)
+                    writer.add_scalar("rotation_err/train", torch.norm(rotation_err).item(), iteration)
+                    writer.add_scalar("translation_err/train", torch.norm(translation_err).item(), iteration)
                 progress_bar.update(10)
             if iteration == opt.iterations:
                 progress_bar.close()
@@ -911,9 +915,13 @@ if __name__ == "__main__":
         network_gui.init(args.ip, args.port)
     if args.detect_anomaly:
         os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
+    if TENSORBOARD_FOUND:
+        writer = SummaryWriter(log_dir=os.path.join(args.model_path, "tensorboard"))
     torch.autograd.set_detect_anomaly(args.detect_anomaly)  # Enable anomaly detection
     training(lp.extract(args), op.extract(args), pp.extract(args), args.test_iterations, args.save_iterations,
              args.checkpoint_iterations, args.start_checkpoint, args.debug_from)
+    if TENSORBOARD_FOUND:
+        writer.close()
 
     # All done
     print("\nTraining complete.")
