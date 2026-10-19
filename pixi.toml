@@ -6,8 +6,8 @@ platforms = [{ name = "my-linux-64", platform = "linux-64", cuda = "12.8", glibc
 version = "0.1.0"
 
 [tasks]
-calibrate = "python calibrate.py -s data/KITTI360 --optimizer_type sparse_adam --cam_id 00 --data_seq 2"
-test-calib = "python calibrate.py -s data/KITTI360 --optimizer_type sparse_adam --cam_id 00 --data_seq 2 --iterations 1500 --disable_viewer"
+test-calib = "python calibrate.py -s data/KITTI360 --optimizer_type sparse_adam --cam_id 00 --data_seq 2 --iterations 1500 --disable_viewer --visualize_projection"
+tensorboard = "tensorboard --logdir=output/tensorboard"
 
 [dependencies]
 plyfile = "*"

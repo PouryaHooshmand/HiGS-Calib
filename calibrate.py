@@ -9,6 +9,7 @@
 # For inquiries contact  george.drettakis@inria.fr
 #
 
+import json
 import os
 
 import cv2
@@ -445,7 +446,7 @@ def save_calibrated_pose(scene, dataset):
     return output_file
 
 
-def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoint_iterations, checkpoint, debug_from):
+def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoint_iterations, checkpoint, debug_from, writer=None):
     if not SPARSE_ADAM_AVAILABLE and opt.optimizer_type == "sparse_adam":
         sys.exit(
             f"Trying to use sparse adam but it is not installed, please install the correct rasterizer using pip install [3dgs_accel].")
@@ -507,10 +508,13 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
     vis_original_img = None
     vis_P = None
     vis_has_gui = True
-    vis_save_dir = os.path.join(dataset.model_path, "vis_projection")
+    vis_save_dir = os.path.join(dataset.model_path, "visualizations")
+    vis_snapshots_dir = os.path.join(vis_save_dir, "snapshots")
+    vis_anim = cv2.Animation()
+    vis_anim_frames = []
 
     if opt.visualize_projection:
-        os.makedirs(vis_save_dir, exist_ok=True)
+        os.makedirs(vis_snapshots_dir, exist_ok=True)
         all_point_clouds = []
         start_idx = max(0, vis_img_index - 2)
         end_idx = min(len(gaussians.gaussian_model_list), vis_img_index + 3)
@@ -796,8 +800,9 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                 # Always update the latest view on disk, and periodically save history checkpoints
                 cv2.imwrite(os.path.join(vis_save_dir, "latest.jpg"), vis_display)
                 if iteration % 100 == 0:
-                    cv2.imwrite(os.path.join(vis_save_dir, f"iter_{iteration:05d}.jpg"), vis_display)
-
+                    cv2.imwrite(os.path.join(vis_snapshots_dir, f"iter_{iteration:05d}.jpg"), vis_display)
+                if iteration % 10 == 0:
+                    vis_anim_frames.append(projected_img_bgr)
 
             # Progress bar
             ema_loss_for_log = 0.4 * loss.item() + 0.6 * ema_loss_for_log
@@ -807,7 +812,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                     match_loss_info = match_loss.item()
                 progress_bar.set_postfix({"Loss": f"{ema_loss_for_log:.{7}f}", "rotation_err": rotation_err.numpy().tolist(),
                                           "translation_err": translation_err.numpy().tolist()})
-                if TENSORBOARD_FOUND:
+                if writer is not None:
                     writer.add_scalar("Loss/train", ema_loss_for_log, iteration)
                     writer.add_scalar("rotation_err/train", torch.norm(rotation_err).item(), iteration)
                     writer.add_scalar("translation_err/train", torch.norm(translation_err).item(), iteration)
@@ -851,18 +856,41 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                     scene.sensor_trajectory.stop_optimize_translation_cl()
 
     rotation_err, translation_err = scene.sensor_trajectory.get_extrinsic_error()
-    print('Final rotation error:', torch.norm(rotation_err).item())
-    print('Final translation error:', torch.norm(translation_err).item())
+    rot_err_norm = torch.norm(rotation_err).item()
+    trans_err_norm = torch.norm(translation_err).item()
+    calibrated_rot = pytorch3d.transforms.quaternion_to_matrix(scene.sensor_trajectory.rotation_cl.detach().cpu()).numpy()
+    calibrated_trans = scene.sensor_trajectory.translation_cl.detach().cpu().numpy()
+
+    print('Final rotation error:', rot_err_norm)
+    print('Final translation error:', trans_err_norm)
 
     print('Calibrated rotation: ')
-    print(pytorch3d.transforms.quaternion_to_matrix(scene.sensor_trajectory.rotation_cl.detach().cpu()).numpy())
+    print(calibrated_rot)
     print('Calibrated translation: ')
-    print(scene.sensor_trajectory.translation_cl.detach().cpu().numpy())
+    print(calibrated_trans)
 
-    save_calibrated_pose(scene, dataset)
+    pose_file = save_calibrated_pose(scene, dataset)
+
+    metrics = {
+        "sequence": getattr(dataset, "data_seq", None),
+        "cam_id": getattr(dataset, "cam_id", None),
+        "iterations": sum_iterations,
+        "final_loss": float(ema_loss_for_log),
+        "final_rotation_error_norm": float(rot_err_norm),
+        "final_translation_error_norm": float(trans_err_norm),
+        "rotation_error_per_axis": rotation_err.detach().cpu().numpy().tolist(),
+        "translation_error_per_axis": translation_err.detach().cpu().numpy().tolist(),
+        "calibrated_rotation_cl": calibrated_rot.tolist(),
+        "calibrated_translation_cl": calibrated_trans.tolist(),
+        "calibrated_pose_file": os.path.basename(pose_file),
+    }
+    metrics_path = os.path.join(dataset.model_path, "calibration_metrics.json")
+    with open(metrics_path, "w") as f:
+        json.dump(metrics, f, indent=4)
 
     if opt.visualize_projection and vis_points_lidar is not None:
-        final_vis_path = os.path.join(dataset.model_path, "final_calibrated_projection.jpg")
+        os.makedirs(vis_save_dir, exist_ok=True)
+        final_vis_path = os.path.join(vis_save_dir, "final_calibrated_projection.jpg")
         rotation_cl, translation_cl = scene.sensor_trajectory.get_extrinsics()
         rotation_cl = pytorch3d.transforms.quaternion_to_matrix(rotation_cl.detach()).cpu().numpy()
         translation_cl = translation_cl.detach().cpu().numpy()
@@ -871,6 +899,13 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         T_cl[:3, 3] = translation_cl
         final_projected = project_lidar_to_image_with_projection(vis_points_lidar, vis_original_img, vis_P, T_cl)
         cv2.imwrite(final_vis_path, cv2.cvtColor(final_projected, cv2.COLOR_RGB2BGR))
+        if len(vis_anim_frames) > 1:
+            vis_anim_path = os.path.join(vis_save_dir, "calibration_projection.webp")
+            vis_anim.frames = vis_anim_frames
+            num_frames = len(vis_anim_frames)
+            dur_per_frame = 9000 // (num_frames - 1)
+            vis_anim.durations = [dur_per_frame] * (num_frames - 1) + [1000]
+            cv2.imwriteanimation(vis_anim_path, vis_anim)
         print(f"Saved final visual calibration projection to: {final_vis_path}")
 
         if vis_has_gui:
@@ -879,6 +914,53 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
     if pose_viz_thread is not None:
         pose_viz_thread.stop()
         pose_viz_thread.join(timeout=2)
+
+
+def setup_run_directory(args):
+    """
+    Create and configure a per-run output directory:
+    <base_dir>/runs/YYYY-MM-DD_HH-MM-SS_seq{seq}_cam{cam}[_{exp_name}]/
+    Also maintains relative symlinks at <base_dir>/runs/latest and
+    <base_dir>/tensorboard/<run_name>, and writes config.json and cfg_args.
+    """
+    base_dir = os.path.abspath(args.model_path if args.model_path else "output")
+    runs_dir = os.path.join(base_dir, "runs")
+    tb_base_dir = os.path.join(base_dir, "tensorboard")
+    os.makedirs(runs_dir, exist_ok=True)
+    os.makedirs(tb_base_dir, exist_ok=True)
+
+    timestamp = time.strftime("%Y-%m-%d_%H-%M-%S")
+    seq_str = f"seq{args.data_seq}" if args.data_seq is not None else "seqX"
+    cam_str = f"cam{args.cam_id}" if args.cam_id is not None else "camXX"
+    exp_str = f"_{args.exp_name}" if getattr(args, "exp_name", None) else ""
+    run_name = f"{timestamp}_{seq_str}_{cam_str}{exp_str}"
+
+    run_dir = os.path.join(runs_dir, run_name)
+    run_tb_dir = os.path.join(run_dir, "tensorboard")
+    os.makedirs(run_tb_dir, exist_ok=True)
+
+    # Update <base_dir>/runs/latest -> <run_name>
+    latest_link = os.path.join(runs_dir, "latest")
+    if os.path.islink(latest_link) or os.path.exists(latest_link):
+        os.remove(latest_link)
+    os.symlink(run_name, latest_link)
+
+    # Create <base_dir>/tensorboard/<run_name> -> ../runs/<run_name>/tensorboard
+    tb_link = os.path.join(tb_base_dir, run_name)
+    if os.path.islink(tb_link) or os.path.exists(tb_link):
+        os.remove(tb_link)
+    os.symlink(os.path.relpath(run_tb_dir, tb_base_dir), tb_link)
+
+    args.model_path = run_dir
+
+    # Save configuration files for reproducibility and 3DGS downstream tools
+    with open(os.path.join(run_dir, "cfg_args"), "w") as f:
+        f.write(str(Namespace(**vars(args))))
+    with open(os.path.join(run_dir, "config.json"), "w") as f:
+        json.dump(vars(args), f, indent=4, default=str)
+
+    print(f"[Run Setup] Output directory: {run_dir}")
+    return run_dir
 
 
 if __name__ == "__main__":
@@ -900,6 +982,8 @@ if __name__ == "__main__":
     parser.add_argument("--start_checkpoint", type=str, default=None)
     parser.add_argument("--cam_id", type=str, default=None)
     parser.add_argument("--data_seq", type=int, default=None)
+    parser.add_argument("--exp_name", type=str, default=None,
+                        help="Optional experiment name / tag appended to the run directory")
     parser.add_argument("--init_calib_file", type=str, default=None,
                         help="Path to initial calibration file (calib_cam_to_pose.txt or calib_cam_to_velo.txt format)")
     parser.add_argument("--init_from_gt", action="store_true", default=False,
@@ -919,6 +1003,8 @@ if __name__ == "__main__":
 
     args = parser.parse_args(sys.argv[1:])
     args.save_iterations.append(args.iterations)
+    setup_run_directory(args)
+
     lp.cam_id = args.cam_id
     lp.data_seq = args.data_seq
     lp.init_calib_file = args.init_calib_file
@@ -928,7 +1014,6 @@ if __name__ == "__main__":
     lp.rand_rot_deg = args.rand_rot_deg
     lp.rand_trans_m = args.rand_trans_m
     lp.calib_seed = args.calib_seed
-    # print("Optimizing " + args.model_path)
 
     # Initialize system state (RNG)
     safe_state(args.quiet)
@@ -938,12 +1023,13 @@ if __name__ == "__main__":
         network_gui.init(args.ip, args.port)
     if args.detect_anomaly:
         os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
+    writer = None
     if TENSORBOARD_FOUND:
         writer = SummaryWriter(log_dir=os.path.join(args.model_path, "tensorboard"))
     torch.autograd.set_detect_anomaly(args.detect_anomaly)  # Enable anomaly detection
     training(lp.extract(args), op.extract(args), pp.extract(args), args.test_iterations, args.save_iterations,
-             args.checkpoint_iterations, args.start_checkpoint, args.debug_from)
-    if TENSORBOARD_FOUND:
+             args.checkpoint_iterations, args.start_checkpoint, args.debug_from, writer=writer)
+    if writer is not None:
         writer.close()
 
     # All done

@@ -76,6 +76,7 @@ class Scene:
         self.all_lidar_points = all_lidar_points
 
         if not self.loaded_iter:
+            os.makedirs(self.model_path, exist_ok=True)
             with open(scene_info_list.ply_path, 'rb') as src_file, open(os.path.join(self.model_path, "input.ply") , 'wb') as dest_file:
                 dest_file.write(src_file.read())
             json_cams = []
