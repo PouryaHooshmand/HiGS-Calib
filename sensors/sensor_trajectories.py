@@ -357,7 +357,7 @@ class SensorTrajectories:
             if param_group["name"] == "rotation_cl":
                 param_group['lr'] = initial_rotation_lr * ratio
             if param_group["name"] == "translation_cl":
-                param_group['lr'] = initial_rotation_lr * ratio
+                param_group['lr'] = initial_translation_lr * ratio
 
     def get_all_lidar_poses(self):
         rotation_param_list = []
